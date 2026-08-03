@@ -42,10 +42,11 @@ headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 csv_historico = "historico_generacion_rer.csv"
 df_consolidado = None
 
+# Manejo seguro de la descarga y extracción
 try:
     response = requests.get(url, headers=headers, verify=False, timeout=30)
     if response.status_code != 200:
-        print(f"[Aviso] Archivo no disponible en el COES (Status: {response.status_code}).")
+        print(f"[Aviso] Archivo no disponible en el servidor del COES (Status: {response.status_code}).")
     else:
         content_bytes = io.BytesIO(response.content)
         if zipfile.is_zipfile(content_bytes):
@@ -112,7 +113,7 @@ try:
 except Exception as e:
     print(f"[Error en procesamiento]: {e}")
 
-# Si no hubo descarga exitosa hoy pero ya existe un histórico previo, cargamos el histórico para graficar
+# Si no se pudo descargar hoy pero ya existe un histórico, lo cargamos para poder graficar
 if df_consolidado is None and os.path.exists(csv_historico):
     print("Cargando datos históricos existentes para generar la gráfica...")
     df_consolidado = pd.read_csv(csv_historico)
@@ -123,9 +124,8 @@ if df_consolidado is None and os.path.exists(csv_historico):
 def generar_grafico_perfil(df):
     if df is None or df.empty:
         print("[Aviso] No hay datos disponibles para graficar.")
-        # Generar imagen en blanco básica para evitar error de git add si no existe
         fig, ax = plt.subplots(figsize=(6, 2))
-        ax.text(0.5, 0.5, "Sin datos para mostrar", ha='center', va='center')
+        ax.text(0.5, 0.5, "Sin datos disponibles", ha='center', va='center')
         ax.axis('off')
         plt.savefig("perfil_generacion_rer.png", dpi=100)
         plt.close()
@@ -185,4 +185,5 @@ def generar_grafico_perfil(df):
     plt.close()
     print("Gráfico 'perfil_generacion_rer.png' generado exitosamente.")
 
+# Ejecución de la función de graficación
 generar_grafico_perfil(df_consolidado)
