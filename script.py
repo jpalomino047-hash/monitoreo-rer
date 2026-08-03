@@ -3,7 +3,6 @@ import seaborn as sns
 
 # Configuración de estilo visual
 sns.set_theme(style="whitegrid")
-plt.rcParams.update({'font.sans-serif': 'Arial', 'font.family': 'sans-serif'})
 
 def generar_grafico_perfil(df):
     if df.empty:
@@ -20,7 +19,11 @@ def generar_grafico_perfil(df):
     cols = 3
     rows = (num_centrales + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(18, 4 * rows), sharex=True, sharey=False)
-    axes = axes.flatten() if num_centrales > 1 else [axes]
+    
+    if num_centrales == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
 
     fechas = df['Fecha'].unique()
     ultima_fecha = max(fechas)
@@ -28,14 +31,14 @@ def generar_grafico_perfil(df):
     for i, central in enumerate(centrales):
         ax = axes[i]
         
-        # 1. Superposición de días anteriores (Perfil Histórico en Gris)
+        # 1. Perfil Histórico (días anteriores en gris)
         for fecha in fechas:
             if fecha == ultima_fecha:
                 continue
             df_dia = df[df['Fecha'] == fecha]
-            ax.plot(df_dia['Intervalo'], df_dia[central], color='gray', alpha=0.15, linewidth=1)
+            ax.plot(df_dia['Intervalo'], df_dia[central], color='gray', alpha=0.2, linewidth=1)
 
-        # 2. Resaltar el perfil del último día disponible
+        # 2. Resaltar el último día
         df_ultimo = df[df['Fecha'] == ultima_fecha]
         ax.plot(
             df_ultimo['Intervalo'], 
@@ -45,23 +48,23 @@ def generar_grafico_perfil(df):
             label=f'Último día ({ultima_fecha})'
         )
 
-        ax.set_title(f"{central}", fontsize=11, fontweight='bold')
-        ax.set_ylabel("MW", fontsize=9)
-        ax.tick_params(axis='x', rotation=90, labelsize=7)
+        ax.set_title(f"{central}", fontsize=10, fontweight='bold')
+        ax.set_ylabel("MW", fontsize=8)
+        ax.tick_params(axis='x', rotation=90, labelsize=6)
         ax.grid(True, linestyle='--', alpha=0.5)
         ax.legend(loc='upper right', fontsize=8)
 
-    # Ocultar ejes vacíos si num_centrales no es múltiplo exacto de cols
+    # Ocultar cuadros vacíos sobrantes
     for j in range(i + 1, len(axes)):
         fig.delaxes(axes[j])
 
-    plt.suptitle("Perfil Diario de Generación RER (Superposición de Días)", fontsize=16, fontweight='bold', y=1.02)
+    plt.suptitle("Perfil Diario de Generación RER", fontsize=15, fontweight='bold', y=1.01)
     plt.tight_layout()
     
-    # Guardar imagen para el README
-    plt.savefig("perfil_generacion_rer.png", dpi=300, bbox_inches='tight')
+    # Guardar imagen obligatoria para GitHub Actions
+    plt.savefig("perfil_generacion_rer.png", dpi=200, bbox_inches='tight')
     plt.close()
     print("Gráfico 'perfil_generacion_rer.png' generado exitosamente.")
 
-# Llamar a la función al final del script
+# Ejecutar la graficación con el dataframe consolidado
 generar_grafico_perfil(df_consolidado)
