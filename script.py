@@ -68,3 +68,4 @@ def generar_grafico_perfil(df):
 
 # Ejecutar la graficación con el dataframe consolidado
 generar_grafico_perfil(df_consolidado)
+plt.savefig("perfil_generacion_rer.png", dpi=200, bbox_inches='tight')
