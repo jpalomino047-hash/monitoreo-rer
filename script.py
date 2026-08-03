@@ -113,7 +113,7 @@ try:
 except Exception as e:
     print(f"[Error en procesamiento]: {e}")
 
-# Si no se pudo descargar hoy pero ya existe un histórico, lo cargamos para poder graficar
+# Si no se pudo descargar hoy pero existe un histórico previo, lo cargamos para poder graficar
 if df_consolidado is None and os.path.exists(csv_historico):
     print("Cargando datos históricos existentes para generar la gráfica...")
     df_consolidado = pd.read_csv(csv_historico)
