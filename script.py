@@ -40,6 +40,7 @@ print(f"Descargando desde COES: {filename}")
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
 csv_historico = "historico_generacion_rer.csv"
+# Definición inicial obligatoria para evitar NameError
 df_consolidado = None
 
 # Manejo seguro de la descarga y extracción
@@ -113,7 +114,7 @@ try:
 except Exception as e:
     print(f"[Error en procesamiento]: {e}")
 
-# Si no se pudo descargar hoy pero existe un histórico previo, lo cargamos para poder graficar
+# Si no se descargó hoy pero existe histórico, se recupera
 if df_consolidado is None and os.path.exists(csv_historico):
     print("Cargando datos históricos existentes para generar la gráfica...")
     df_consolidado = pd.read_csv(csv_historico)
@@ -185,5 +186,5 @@ def generar_grafico_perfil(df):
     plt.close()
     print("Gráfico 'perfil_generacion_rer.png' generado exitosamente.")
 
-# Ejecución de la función de graficación
+# Ejecución de la función
 generar_grafico_perfil(df_consolidado)
