@@ -24,7 +24,7 @@ jobs:
     - name: Instalar librerías requeridas
       run: |
         python -m pip install --upgrade pip
-        pip install pandas openpyxl requests
+        pip install pandas openpyxl requests matplotlib seaborn
 
     - name: Ejecutar script extractor
       run: python script.py
@@ -33,6 +33,6 @@ jobs:
       run: |
         git config --global user.name "COES Bot"
         git config --global user.email "actions@github.com"
-        git add historico_generacion_rer.csv
-        # Solo hacer commit si el archivo realmente cambió para evitar errores
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER - $(date +'%Y-%m-%d')" && git push)
+        git add historico_generacion_rer.csv perfil_generacion_rer.png
+        # Solo hacer commit si los archivos realmente cambiaron para evitar errores
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER y Gráfico - $(date +'%Y-%m-%d')" && git push)
