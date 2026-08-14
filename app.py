@@ -36,6 +36,15 @@ def cargar_datos():
         df['hora_decimal'] = df[col_fecha].dt.hour + df[col_fecha].dt.minute / 60.0
         df['hora_str'] = df[col_fecha].dt.strftime('%H:%M')
     
+    # CONVERSIÓN DE COLUMNAS NUMÉRICAS (Corrige el TypeError)
+    cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', 'hora_str', col_fecha]
+    for col in df.columns:
+        if col not in cols_excluir:
+            # Reemplazar comas por puntos si vienen formateados como texto (ej. "12,5")
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(',', '.')
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
     return df, col_fecha
 
 try:
