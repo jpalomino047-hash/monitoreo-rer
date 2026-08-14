@@ -14,89 +14,74 @@ st.title("⚡ Monitoreo RER - Perfiles de Generación Diario")
 st.markdown("Visualización superpuesta del perfil de generación diaria por central y mes.")
 
 # -----------------------------------------------------------------------------
-# CARGA Y PARSEO ROBUSTO DE DATOS
+# CARGA Y PARSEO DE DATOS (CORREGIDO)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def cargar_datos():
     url_raw = "https://raw.githubusercontent.com/jpalomino047-hash/monitoreo-rer/main/historico_generacion_rer.csv"
     df = pd.read_csv(url_raw)
     
-    # Limpiar espacios en los nombres de las columnas
+    # Limpiar espacios en nombres de columnas
     df.columns = df.columns.str.strip()
     
-    # Identificar la columna de fecha/hora (asumimos la primera columna)
-    col_fecha = df.columns[0]
+    # 1. Identificar columnas clave de tiempo
+    col_fecha = df.columns[0]      # "Fecha"
+    col_intervalo = df.columns[1]  # "Intervalo"
     
-    # Asegurar que la primera columna sea texto sin espacios
-    df[col_fecha] = df[col_fecha].astype(str).str.strip()
-    
-    # Convertir todas las demás columnas (centrales) a números float
-    for col in df.columns[1:]:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-    # TÁCTICA PARA EXTRAER FECHA Y HORA SIN PASAR POR PD.TO_DATETIME FRÁGIL:
-    # 1. Intentar parsear con dayfirst=True
+    # Parsear Fecha para extraer Año, Mes y Día
     fecha_dt = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-    
-    # 2. Si falló la fecha completa, creamos los componentes
     df['año'] = fecha_dt.dt.year
     df['mes_num'] = fecha_dt.dt.month
     df['dia'] = fecha_dt.dt.day
     
-    # Rellenar años/meses/días si vinieron nulos intentando parsing alternativo
-    if df['año'].isna().all():
-        # Asumir que la columna tiene formato "DD/MM/YYYY HH:MM" o similar
-        partes = df[col_fecha].str.split(' ', expand=True)
-        if partes.shape[1] >= 2:
-            fechas_parte = pd.to_datetime(partes[0], dayfirst=True, errors='coerce')
-            df['año'] = fechas_parte.dt.year
-            df['mes_num'] = fechas_parte.dt.month
-            df['dia'] = fechas_parte.dt.day
-            horas_parte = partes[1]
-        else:
-            horas_parte = df[col_fecha]
-    else:
-        horas_parte = fecha_dt.dt.strftime('%H:%M')
-
-    # Convertir "H:MM" a valor decimal continuo de 0 a 24 para el eje X
+    # Función para convertir "0:30", "1:00", "23:30" etc., a número decimal (0.0 a 24.0)
     def hora_a_decimal(cadena_hora):
         try:
             cadena_hora = str(cadena_hora).strip()
             if ':' in cadena_hora:
-                h, m = cadena_hora.split(':')[:2]
-                val = float(h) + float(m)/60.0
-                return 24.0 if (val == 0.0 and h != '0' and h != '00') else val
+                partes = cadena_hora.split(':')
+                h = float(partes[0])
+                m = float(partes[1])
+                val = h + (m / 60.0)
+                # Si el intervalo es 0:00 al final del día, se asigna 24.0
+                return 24.0 if (val == 0.0 and h != 0) else val
             return np.nan
         except:
             return np.nan
 
-    df['hora_decimal'] = horas_parte.apply(hora_a_decimal)
-    
-    # Si hora_decimal sigue teniendo nulos, asignar secuencia basada en frecuencia (48 bloques/día)
+    # 2. Extraer hora decimal desde la columna 'Intervalo'
+    df['hora_decimal'] = df[col_intervalo].apply(hora_a_decimal)
+
+    # Fallback si algún registro fallara en parsear
     if df['hora_decimal'].isna().any():
-        # Asignar un índice de 0 a 47 repetitivo para asegurar 48 intervalos por día
         df['hora_decimal'] = df.groupby(['año', 'mes_num', 'dia']).cumcount() * 0.5
 
-    return df, col_fecha
+    # 3. Convertir a flotante SOLO las columnas de centrales (excluyendo Fecha e Intervalo)
+    cols_excluir_conversion = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_intervalo]
+    for col in df.columns:
+        if col not in cols_excluir_conversion:
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+    return df, col_fecha, col_intervalo
 
 try:
-    df_raw, col_fecha = cargar_datos()
+    df_raw, col_fecha, col_intervalo = cargar_datos()
 except Exception as e:
     st.error(f"Error al procesar el archivo CSV: {e}")
     st.stop()
 
-# Lista de columnas de centrales
-cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha]
+# -----------------------------------------------------------------------------
+# DEFINICIÓN DE CENTRALES Y FILTROS
+# -----------------------------------------------------------------------------
+# Excluir meta-columnas e 'Intervalo' de la lista de centrales seleccionables
+cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_intervalo]
 cols_centrales = [c for c in df_raw.columns if c not in cols_excluir]
 
-# -----------------------------------------------------------------------------
-# FILTROS
-# -----------------------------------------------------------------------------
 st.sidebar.header("🔍 Filtros")
 
-# Filtrar Años válidos
+# Filtro Año
 años_validos = df_raw['año'].dropna().unique()
 if len(años_validos) > 0:
     años_disp = sorted(años_validos.astype(int), reverse=True)
@@ -107,6 +92,7 @@ else:
 mes_map = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 
            7: 'Julio', 8: 'Agosto', 9: 'Setiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
 
+# Filtro Mes
 if año_sel:
     df_año = df_raw[df_raw['año'] == año_sel]
     meses_disp = sorted(df_año['mes_num'].dropna().unique().astype(int))
@@ -114,20 +100,21 @@ if año_sel:
 else:
     mes_sel = None
 
+# Filtro Central / Serie
 central_sel = st.sidebar.selectbox("Central / Serie", options=cols_centrales)
 
-# Filtrado final
+# Filtrado de DataFrame
 if año_sel and mes_sel:
     df_fil = df_raw[(df_raw['año'] == año_sel) & (df_raw['mes_num'] == mes_sel)].copy()
 else:
     df_fil = df_raw.copy()
 
 # -----------------------------------------------------------------------------
-# GRÁFICO
+# RENDERING DE GRÁFICO Y MÉTRICAS
 # -----------------------------------------------------------------------------
 if central_sel and not df_fil.empty:
 
-    # Métricas
+    # Métricas principales
     col1, col2, col3 = st.columns(3)
     pmax = df_fil[central_sel].max()
     pmed = df_fil[central_sel].mean()
@@ -140,7 +127,7 @@ if central_sel and not df_fil.empty:
 
     fig = go.Figure()
 
-    # 1. Trazar perfiles por cada día
+    # 1. Perfiles Diarios (Líneas grises tenues)
     dias = sorted(df_fil['dia'].dropna().unique())
     for d in dias:
         df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
@@ -156,7 +143,7 @@ if central_sel and not df_fil.empty:
                 hovertemplate=f"Día {int(d)} | Hora: %{{x:.2f}}h<br>Potencia: %{{y:.2f}} MW<extra></extra>"
             ))
 
-    # 2. Trazar Promedio Mensual
+    # 2. Promedio Mensual (Línea azul gruesa sobre los 48 bloques)
     df_prom = df_fil.groupby('hora_decimal')[central_sel].mean().reset_index().sort_values('hora_decimal')
 
     if not df_prom.empty:
@@ -171,7 +158,7 @@ if central_sel and not df_fil.empty:
             hovertemplate="<b>Media Mensual</b><br>Hora: %{x:.2f}h<br>Potencia Promedio: %{y:.2f} MW<extra></extra>"
         ))
 
-    # Formateo visual del Eje X (00:00 a 24:00)
+    # Formato visual del eje X (00:00, 02:00 ... 24:00)
     tick_vals = list(range(0, 25, 2))
     tick_text = [f"{h:02d}:00" for h in range(0, 25, 2)]
 
@@ -194,6 +181,6 @@ if central_sel and not df_fil.empty:
 else:
     st.warning("No hay datos disponibles para mostrar.")
 
-# Expander de control
-with st.expander("📥 Ver tabla de datos filtrada (Revisa que la columna de hora no sea None)"):
+# Expander para validar la estructura interna
+with st.expander("📥 Ver tabla de datos filtrada"):
     st.dataframe(df_fil)
