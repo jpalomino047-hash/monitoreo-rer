@@ -14,53 +14,81 @@ st.title("⚡ Monitoreo RER - Perfiles de Generación Diario")
 st.markdown("Visualización superpuesta del perfil de generación diaria por central y mes.")
 
 # -----------------------------------------------------------------------------
-# CARGA Y PARSEO DE DATOS
+# CARGA Y PARSEO ROBUSTO DE DATOS
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def cargar_datos():
     url_raw = "https://raw.githubusercontent.com/jpalomino047-hash/monitoreo-rer/main/historico_generacion_rer.csv"
     df = pd.read_csv(url_raw)
     
-    # Limpiar nombres de columnas
+    # Limpiar espacios en los nombres de las columnas
     df.columns = df.columns.str.strip()
     
-    # Identificar la columna de fecha
+    # Identificar la columna de fecha/hora (asumimos la primera columna)
     col_fecha = df.columns[0]
-    for col in df.columns:
-        if any(term in col.lower() for term in ['fecha', 'time', 'timestamp', 'date', 'hora']):
-            col_fecha = col
-            break
-
-    # Parsear fechas usando el parser flexible de pandas
-    df['fecha_parsed'] = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-    df = df.dropna(subset=['fecha_parsed'])
-
-    # Extraer componentes
-    df['año'] = df['fecha_parsed'].dt.year
-    df['mes_num'] = df['fecha_parsed'].dt.month
-    df['dia'] = df['fecha_parsed'].dt.day
     
-    # Eje X preciso: Hora en decimal de 0.0 a 23.75
-    df['hora_decimal'] = df['fecha_parsed'].dt.hour + df['fecha_parsed'].dt.minute / 60.0 + df['fecha_parsed'].dt.second / 3600.0
+    # Asegurar que la primera columna sea texto sin espacios
+    df[col_fecha] = df[col_fecha].astype(str).str.strip()
+    
+    # Convertir todas las demás columnas (centrales) a números float
+    for col in df.columns[1:]:
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+    # TÁCTICA PARA EXTRAER FECHA Y HORA SIN PASAR POR PD.TO_DATETIME FRÁGIL:
+    # 1. Intentar parsear con dayfirst=True
+    fecha_dt = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
+    
+    # 2. Si falló la fecha completa, creamos los componentes
+    df['año'] = fecha_dt.dt.year
+    df['mes_num'] = fecha_dt.dt.month
+    df['dia'] = fecha_dt.dt.day
+    
+    # Rellenar años/meses/días si vinieron nulos intentando parsing alternativo
+    if df['año'].isna().all():
+        # Asumir que la columna tiene formato "DD/MM/YYYY HH:MM" o similar
+        partes = df[col_fecha].str.split(' ', expand=True)
+        if partes.shape[1] >= 2:
+            fechas_parte = pd.to_datetime(partes[0], dayfirst=True, errors='coerce')
+            df['año'] = fechas_parte.dt.year
+            df['mes_num'] = fechas_parte.dt.month
+            df['dia'] = fechas_parte.dt.day
+            horas_parte = partes[1]
+        else:
+            horas_parte = df[col_fecha]
+    else:
+        horas_parte = fecha_dt.dt.strftime('%H:%M')
 
-    # Convertir variables numéricas (removiendo comas)
-    cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', 'fecha_parsed', col_fecha]
-    for col in df.columns:
-        if col not in cols_excluir:
-            if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+    # Convertir "H:MM" a valor decimal continuo de 0 a 24 para el eje X
+    def hora_a_decimal(cadena_hora):
+        try:
+            cadena_hora = str(cadena_hora).strip()
+            if ':' in cadena_hora:
+                h, m = cadena_hora.split(':')[:2]
+                val = float(h) + float(m)/60.0
+                return 24.0 if (val == 0.0 and h != '0' and h != '00') else val
+            return np.nan
+        except:
+            return np.nan
+
+    df['hora_decimal'] = horas_parte.apply(hora_a_decimal)
+    
+    # Si hora_decimal sigue teniendo nulos, asignar secuencia basada en frecuencia (48 bloques/día)
+    if df['hora_decimal'].isna().any():
+        # Asignar un índice de 0 a 47 repetitivo para asegurar 48 intervalos por día
+        df['hora_decimal'] = df.groupby(['año', 'mes_num', 'dia']).cumcount() * 0.5
+
     return df, col_fecha
 
 try:
     df_raw, col_fecha = cargar_datos()
 except Exception as e:
-    st.error(f"Error al cargar/procesar los datos: {e}")
+    st.error(f"Error al procesar el archivo CSV: {e}")
     st.stop()
 
-# Centrales
-cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', 'fecha_parsed', col_fecha]
+# Lista de columnas de centrales
+cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha]
 cols_centrales = [c for c in df_raw.columns if c not in cols_excluir]
 
 # -----------------------------------------------------------------------------
@@ -68,23 +96,34 @@ cols_centrales = [c for c in df_raw.columns if c not in cols_excluir]
 # -----------------------------------------------------------------------------
 st.sidebar.header("🔍 Filtros")
 
-años_disp = sorted(df_raw['año'].dropna().unique().astype(int), reverse=True)
-año_sel = st.sidebar.selectbox("Año", options=años_disp)
+# Filtrar Años válidos
+años_validos = df_raw['año'].dropna().unique()
+if len(años_validos) > 0:
+    años_disp = sorted(años_validos.astype(int), reverse=True)
+    año_sel = st.sidebar.selectbox("Año", options=años_disp)
+else:
+    año_sel = None
 
 mes_map = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 
            7: 'Julio', 8: 'Agosto', 9: 'Setiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
 
-df_año = df_raw[df_raw['año'] == año_sel]
-meses_disp = sorted(df_año['mes_num'].dropna().unique().astype(int))
-mes_sel = st.sidebar.selectbox("Mes", options=meses_disp, format_func=lambda x: mes_map.get(x, str(x)))
+if año_sel:
+    df_año = df_raw[df_raw['año'] == año_sel]
+    meses_disp = sorted(df_año['mes_num'].dropna().unique().astype(int))
+    mes_sel = st.sidebar.selectbox("Mes", options=meses_disp, format_func=lambda x: mes_map.get(x, str(x)))
+else:
+    mes_sel = None
 
 central_sel = st.sidebar.selectbox("Central / Serie", options=cols_centrales)
 
-# Data filtrada del mes
-df_fil = df_raw[(df_raw['año'] == año_sel) & (df_raw['mes_num'] == mes_sel)].copy()
+# Filtrado final
+if año_sel and mes_sel:
+    df_fil = df_raw[(df_raw['año'] == año_sel) & (df_raw['mes_num'] == mes_sel)].copy()
+else:
+    df_fil = df_raw.copy()
 
 # -----------------------------------------------------------------------------
-# GRÁFICA MULTI-LÍNEA SOBRE EJE 0-24 HRS
+# GRÁFICO
 # -----------------------------------------------------------------------------
 if central_sel and not df_fil.empty:
 
@@ -101,8 +140,8 @@ if central_sel and not df_fil.empty:
 
     fig = go.Figure()
 
-    # 1. Graficar líneas delgadas por cada día del mes
-    dias = sorted(df_fil['dia'].unique())
+    # 1. Trazar perfiles por cada día
+    dias = sorted(df_fil['dia'].dropna().unique())
     for d in dias:
         df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
         if not df_d.empty:
@@ -117,14 +156,12 @@ if central_sel and not df_fil.empty:
                 hovertemplate=f"Día {int(d)} | Hora: %{{x:.2f}}h<br>Potencia: %{{y:.2f}} MW<extra></extra>"
             ))
 
-    # 2. Graficar Promedio Mensual (Línea azul gruesa)
-    # Redondeamos la hora decimal a 2 decimales para agrupar exactamente las medias horas (0.0, 0.5, 1.0...)
-    df_fil['hora_agrupar'] = df_fil['hora_decimal'].round(2)
-    df_prom = df_fil.groupby('hora_agrupar')[central_sel].mean().reset_index().sort_values('hora_agrupar')
+    # 2. Trazar Promedio Mensual
+    df_prom = df_fil.groupby('hora_decimal')[central_sel].mean().reset_index().sort_values('hora_decimal')
 
     if not df_prom.empty:
         fig.add_trace(go.Scatter(
-            x=df_prom['hora_agrupar'],
+            x=df_prom['hora_decimal'],
             y=df_prom[central_sel],
             mode='lines+markers',
             marker=dict(size=4),
@@ -134,7 +171,7 @@ if central_sel and not df_fil.empty:
             hovertemplate="<b>Media Mensual</b><br>Hora: %{x:.2f}h<br>Potencia Promedio: %{y:.2f} MW<extra></extra>"
         ))
 
-    # Formatear el Eje X numérico (0 a 24 hrs) para mostrar las etiquetas "00:00", "02:00", etc.
+    # Formateo visual del Eje X (00:00 a 24:00)
     tick_vals = list(range(0, 25, 2))
     tick_text = [f"{h:02d}:00" for h in range(0, 25, 2)]
 
@@ -155,7 +192,8 @@ if central_sel and not df_fil.empty:
     st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.warning("No hay datos disponibles.")
+    st.warning("No hay datos disponibles para mostrar.")
 
-with st.expander("📥 Ver tabla de datos filtrada"):
+# Expander de control
+with st.expander("📥 Ver tabla de datos filtrada (Revisa que la columna de hora no sea None)"):
     st.dataframe(df_fil)
