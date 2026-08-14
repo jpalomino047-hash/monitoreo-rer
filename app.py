@@ -14,7 +14,7 @@ st.title("⚡ Monitoreo RER - Perfiles de Generación Diario")
 st.markdown("Visualización superpuesta del perfil de generación diaria por central y mes.")
 
 # -----------------------------------------------------------------------------
-# CARGA Y PARSEO DE DATOS (CORREGIDO)
+# CARGA Y PARSEO DE DATOS
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def cargar_datos():
@@ -24,7 +24,7 @@ def cargar_datos():
     # Limpiar espacios en nombres de columnas
     df.columns = df.columns.str.strip()
     
-    # 1. Identificar columnas clave de tiempo
+    # Identificar columnas clave de tiempo
     col_fecha = df.columns[0]      # "Fecha"
     col_intervalo = df.columns[1]  # "Intervalo"
     
@@ -34,7 +34,7 @@ def cargar_datos():
     df['mes_num'] = fecha_dt.dt.month
     df['dia'] = fecha_dt.dt.day
     
-    # Función para convertir "0:30", "1:00", "23:30" etc., a número decimal (0.0 a 24.0)
+    # Función para convertir intervalos ("0:30", "1:00", etc.) a número decimal (0.0 a 24.0)
     def hora_a_decimal(cadena_hora):
         try:
             cadena_hora = str(cadena_hora).strip()
@@ -43,20 +43,19 @@ def cargar_datos():
                 h = float(partes[0])
                 m = float(partes[1])
                 val = h + (m / 60.0)
-                # Si el intervalo es 0:00 al final del día, se asigna 24.0
                 return 24.0 if (val == 0.0 and h != 0) else val
             return np.nan
         except:
             return np.nan
 
-    # 2. Extraer hora decimal desde la columna 'Intervalo'
+    # Extraer hora decimal desde 'Intervalo'
     df['hora_decimal'] = df[col_intervalo].apply(hora_a_decimal)
 
-    # Fallback si algún registro fallara en parsear
+    # Fallback si falla el parseo
     if df['hora_decimal'].isna().any():
         df['hora_decimal'] = df.groupby(['año', 'mes_num', 'dia']).cumcount() * 0.5
 
-    # 3. Convertir a flotante SOLO las columnas de centrales (excluyendo Fecha e Intervalo)
+    # Convertir a flotante SOLO las columnas de centrales
     cols_excluir_conversion = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_intervalo]
     for col in df.columns:
         if col not in cols_excluir_conversion:
@@ -73,9 +72,8 @@ except Exception as e:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# DEFINICIÓN DE CENTRALES Y FILTROS
+# FILTROS LATERALES
 # -----------------------------------------------------------------------------
-# Excluir meta-columnas e 'Intervalo' de la lista de centrales seleccionables
 cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_intervalo]
 cols_centrales = [c for c in df_raw.columns if c not in cols_excluir]
 
@@ -100,8 +98,14 @@ if año_sel:
 else:
     mes_sel = None
 
-# Filtro Central / Serie
-central_sel = st.sidebar.selectbox("Central / Serie", options=cols_centrales)
+st.sidebar.markdown("---")
+
+# Seleccionar Central Principal (Azul)
+central_sel = st.sidebar.selectbox("Central Principal (Azul)", options=cols_centrales, index=0)
+
+# Seleccionar Segunda Central Opcional (Naranja)
+opciones_segunda = ["Ninguna (Solo Central Principal)"] + [c for c in cols_centrales if c != central_sel]
+central_sel_2 = st.sidebar.selectbox("Comparar con Segunda Central (Naranja)", options=opciones_segunda, index=0)
 
 # Filtrado de DataFrame
 if año_sel and mes_sel:
@@ -110,25 +114,39 @@ else:
     df_fil = df_raw.copy()
 
 # -----------------------------------------------------------------------------
-# RENDERING DE GRÁFICO Y MÉTRICAS
+# RENDERING DE MÉTRICAS Y GRÁFICO
 # -----------------------------------------------------------------------------
 if central_sel and not df_fil.empty:
 
-    # Métricas principales
-    col1, col2, col3 = st.columns(3)
-    pmax = df_fil[central_sel].max()
-    pmed = df_fil[central_sel].mean()
-    
-    col1.metric("Potencia Máxima (PMAX)", f"{pmax:.2f} MW" if pd.notna(pmax) else "0.00 MW")
-    col2.metric("Potencia Promedio", f"{pmed:.2f} MW" if pd.notna(pmed) else "0.00 MW")
-    col3.metric("Registros en el Mes", len(df_fil))
+    # Métricas
+    if central_sel_2 != "Ninguna (Solo Central Principal)":
+        col1, col2, col3, col4 = st.columns(4)
+        
+        pmax_1 = df_fil[central_sel].max()
+        pmed_1 = df_fil[central_sel].mean()
+        pmax_2 = df_fil[central_sel_2].max()
+        pmed_2 = df_fil[central_sel_2].mean()
+        
+        col1.metric(f"PMAX - {central_sel}", f"{pmax_1:.2f} MW" if pd.notna(pmax_1) else "0.00 MW")
+        col2.metric(f"Promedio - {central_sel}", f"{pmed_1:.2f} MW" if pd.notna(pmed_1) else "0.00 MW")
+        col3.metric(f"PMAX - {central_sel_2}", f"{pmax_2:.2f} MW" if pd.notna(pmax_2) else "0.00 MW")
+        col4.metric(f"Promedio - {central_sel_2}", f"{pmed_2:.2f} MW" if pd.notna(pmed_2) else "0.00 MW")
+    else:
+        col1, col2, col3 = st.columns(3)
+        pmax = df_fil[central_sel].max()
+        pmed = df_fil[central_sel].mean()
+        
+        col1.metric("Potencia Máxima (PMAX)", f"{pmax:.2f} MW" if pd.notna(pmax) else "0.00 MW")
+        col2.metric("Potencia Promedio", f"{pmed:.2f} MW" if pd.notna(pmed) else "0.00 MW")
+        col3.metric("Registros en el Mes", len(df_fil))
 
     st.markdown("---")
 
     fig = go.Figure()
-
-    # 1. Perfiles Diarios (Líneas grises tenues)
     dias = sorted(df_fil['dia'].dropna().unique())
+
+    # 1. TRAZADO DE CENTRAL PRINCIPAL (AZUL)
+    # Perfiles diarios tenues
     for d in dias:
         df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
         if not df_d.empty:
@@ -136,34 +154,69 @@ if central_sel and not df_fil.empty:
                 x=df_d['hora_decimal'],
                 y=df_d[central_sel],
                 mode='lines',
-                line=dict(width=1, color='rgba(160, 160, 160, 0.35)'),
-                name=f"Día {int(d)}",
+                line=dict(width=0.8, color='rgba(0, 104, 201, 0.2)'),
+                name=f"{central_sel} - Día {int(d)}",
                 showlegend=False,
                 connectgaps=True,
-                hovertemplate=f"Día {int(d)} | Hora: %{{x:.2f}}h<br>Potencia: %{{y:.2f}} MW<extra></extra>"
+                hoverinfo='skip'
             ))
 
-    # 2. Promedio Mensual (Línea azul gruesa sobre los 48 bloques)
-    df_prom = df_fil.groupby('hora_decimal')[central_sel].mean().reset_index().sort_values('hora_decimal')
-
-    if not df_prom.empty:
+    # Media Mensual Central Principal
+    df_prom1 = df_fil.groupby('hora_decimal')[central_sel].mean().reset_index().sort_values('hora_decimal')
+    if not df_prom1.empty:
         fig.add_trace(go.Scatter(
-            x=df_prom['hora_decimal'],
-            y=df_prom[central_sel],
+            x=df_prom1['hora_decimal'],
+            y=df_prom1[central_sel],
             mode='lines+markers',
             marker=dict(size=4),
             line=dict(width=3.5, color='#0068C9'),
-            name="Media Mensual",
+            name=f"Media Mensual: {central_sel}",
             connectgaps=True,
-            hovertemplate="<b>Media Mensual</b><br>Hora: %{x:.2f}h<br>Potencia Promedio: %{y:.2f} MW<extra></extra>"
+            hovertemplate=f"<b>{central_sel} (Media)</b><br>Hora: %{{x:.2f}}h<br>Potencia: %{{y:.2f}} MW<extra></extra>"
         ))
 
-    # Formato visual del eje X (00:00, 02:00 ... 24:00)
+    # 2. TRAZADO DE SEGUNDA CENTRAL SI FUE SELECCIONADA (NARANJA)
+    if central_sel_2 != "Ninguna (Solo Central Principal)":
+        # Perfiles diarios tenues en naranja
+        for d in dias:
+            df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
+            if not df_d.empty:
+                fig.add_trace(go.Scatter(
+                    x=df_d['hora_decimal'],
+                    y=df_d[central_sel_2],
+                    mode='lines',
+                    line=dict(width=0.8, color='rgba(255, 127, 14, 0.2)'),
+                    name=f"{central_sel_2} - Día {int(d)}",
+                    showlegend=False,
+                    connectgaps=True,
+                    hoverinfo='skip'
+                ))
+
+        # Media Mensual Segunda Central
+        df_prom2 = df_fil.groupby('hora_decimal')[central_sel_2].mean().reset_index().sort_values('hora_decimal')
+        if not df_prom2.empty:
+            fig.add_trace(go.Scatter(
+                x=df_prom2['hora_decimal'],
+                y=df_prom2[central_sel_2],
+                mode='lines+markers',
+                marker=dict(size=4),
+                line=dict(width=3.5, color='#FF7F0E'),
+                name=f"Media Mensual: {central_sel_2}",
+                connectgaps=True,
+                hovertemplate=f"<b>{central_sel_2} (Media)</b><br>Hora: %{{x:.2f}}h<br>Potencia: %{{y:.2f}} MW<extra></extra>"
+            ))
+
+    # Formato del Eje X (00:00, 02:00 ... 24:00)
     tick_vals = list(range(0, 25, 2))
     tick_text = [f"{h:02d}:00" for h in range(0, 25, 2)]
 
+    titulo_graf = f"Perfil Diario - {central_sel}"
+    if central_sel_2 != "Ninguna (Solo Central Principal)":
+        titulo_graf += f" vs {central_sel_2}"
+    titulo_graf += f" ({mes_map.get(mes_sel, '')} {año_sel})"
+
     fig.update_layout(
-        title=f"Perfil Diario Superpuesto - {central_sel} ({mes_map.get(mes_sel, '')} {año_sel})",
+        title=titulo_graf,
         xaxis=dict(
             title="Hora del Día",
             tickmode='array',
@@ -173,7 +226,14 @@ if central_sel and not df_fil.empty:
         ),
         yaxis=dict(title="Potencia (MW)", zeroline=True),
         template="plotly_white",
-        height=550
+        height=580,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -181,6 +241,6 @@ if central_sel and not df_fil.empty:
 else:
     st.warning("No hay datos disponibles para mostrar.")
 
-# Expander para validar la estructura interna
+# Expander para inspección
 with st.expander("📥 Ver tabla de datos filtrada"):
     st.dataframe(df_fil)
