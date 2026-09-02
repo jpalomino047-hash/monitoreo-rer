@@ -1,8 +1,10 @@
 import os
 import io
 import re
+import json
 import zipfile
 import warnings
+import traceback
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -17,9 +19,9 @@ requests.packages.urllib3.disable_warnings()
 hora_peru = datetime.utcnow() - timedelta(hours=5)
 ayer = hora_peru - timedelta(days=1)
 
-dia_str = ayer.strftime("%d")      
-mes_num = ayer.strftime("%m")      
-anio_str = ayer.strftime("%Y")     
+dia_str = ayer.strftime("%d")
+mes_num = ayer.strftime("%m")
+anio_str = ayer.strftime("%Y")
 
 meses_es = {
     "01": "01_Enero", "02": "02_Febrero", "03": "03_Marzo", "04": "04_Abril",
@@ -63,7 +65,7 @@ try:
                         texto_celda = str(celda_val).strip().upper()
                         es_eolica = bool(re.search(r'\bC\.E\.|\bCE\b', texto_celda))
                         es_solar = bool(re.search(r'\bC\.S\.|\bCS\b', texto_celda))
-                        
+
                         if es_eolica or es_solar:
                             tipo_completo = "Eólica" if es_eolica else "Solar"
                             centrales_detectadas[col] = {
@@ -78,14 +80,14 @@ try:
                         'Fecha': fecha_formateada,
                         'Intervalo': str(intervalo).strip() if intervalo else f"H_{row-7}"
                     }
-                    
+
                     for col, info in centrales_detectadas.items():
                         val = ws.cell(row=row, column=col).value
                         try:
                             registro[info['nombre']] = float(val) if val is not None else 0.0
                         except ValueError:
                             registro[info['nombre']] = 0.0
-                        
+
                     datos_dia.append(registro)
 
                 df_nuevo = pd.DataFrame(datos_dia)
@@ -113,6 +115,7 @@ try:
 
 except Exception as e:
     print(f"[Error en procesamiento]: {e}")
+    traceback.print_exc()
 
 # Si no se descargó hoy pero existe histórico, se recupera
 if df_consolidado is None and os.path.exists(csv_historico):
@@ -135,14 +138,14 @@ def generar_grafico_perfil(df):
     sns.set_theme(style="whitegrid")
     centrales = [c for c in df.columns if c not in ['Fecha', 'Intervalo']]
     num_centrales = len(centrales)
-    
+
     if num_centrales == 0:
         return
 
     cols = 3
     rows = (num_centrales + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(18, 4 * rows), sharex=True, sharey=False)
-    
+
     if num_centrales == 1:
         axes = [axes]
     else:
@@ -153,7 +156,7 @@ def generar_grafico_perfil(df):
 
     for i, central in enumerate(centrales):
         ax = axes[i]
-        
+
         # Perfil Histórico (gris)
         for fecha in fechas:
             if fecha == ultima_fecha:
@@ -164,10 +167,10 @@ def generar_grafico_perfil(df):
         # Último día (resaltado en naranja)
         df_ultimo = df[df['Fecha'] == ultima_fecha]
         ax.plot(
-            df_ultimo['Intervalo'], 
-            df_ultimo[central], 
-            color='#d95f02', 
-            linewidth=2.5, 
+            df_ultimo['Intervalo'],
+            df_ultimo[central],
+            color='#d95f02',
+            linewidth=2.5,
             label=f'Último día ({ultima_fecha})'
         )
 
@@ -186,22 +189,20 @@ def generar_grafico_perfil(df):
     plt.close()
     print("Gráfico 'perfil_generacion_rer.png' generado exitosamente.")
 
-# Ejecución de la función
-generar_grafico_perfil(df_consolidado)
+
 # ==========================================
 # 3. EXPORTAR DATOS A JSON PARA GITHUB PAGES
 # ==========================================
-import json
-
 def exportar_a_json(df):
     if df is None or df.empty:
+        print("[Aviso] No hay datos disponibles para exportar a JSON.")
         return
 
     # Crear carpeta 'data' si no existe
     os.makedirs('data', exist_ok=True)
-    
+
     centrales = [c for c in df.columns if c not in ['Fecha', 'Intervalo']]
-    
+
     # Estructura del JSON final
     estructura_json = {
         "centrales": centrales,
@@ -214,17 +215,31 @@ def exportar_a_json(df):
     for central in centrales:
         estructura_json["datos"][central] = {}
         for fecha, df_fecha in df.groupby('Fecha'):
-            # Convertir la columna a lista float
-            valores = df_fecha[central].fillna(0).astype(float).tolist()
+            # Conversión tolerante: lo que no sea numérico se vuelve 0 en vez de romper el script
+            valores = pd.to_numeric(df_fecha[central], errors='coerce').fillna(0).tolist()
             # Asegurar exactamente 48 periodos
             if len(valores) == 48:
                 estructura_json["datos"][central][fecha] = valores
+            else:
+                print(f"[Aviso] {central} - {fecha}: {len(valores)} valores (se esperaban 48), se descarta esa fecha.")
 
     json_path = os.path.join('data', 'data.json')
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(estructura_json, f, ensure_ascii=False, indent=2)
-    
+
     print(f"¡Éxito! Datos exportados para la Web en '{json_path}'.")
 
-# Ejecutamos la exportación
-exportar_a_json(df_consolidado)
+
+# Ejecución de ambas funciones, cada una aislada para que un fallo en una
+# no impida que la otra corra ni que el commit/push final se ejecute.
+try:
+    generar_grafico_perfil(df_consolidado)
+except Exception:
+    print("[Error generando gráfico]")
+    traceback.print_exc()
+
+try:
+    exportar_a_json(df_consolidado)
+except Exception:
+    print("[Error exportando JSON]")
+    traceback.print_exc()
