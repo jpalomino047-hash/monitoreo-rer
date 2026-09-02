@@ -9,9 +9,35 @@
   <style>
     * { box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; color: #1a202c; }
-    .header { text-align: center; margin-bottom: 25px; }
-    .header h1 { margin: 0; color: #0f172a; font-size: 1.8rem; }
-    .header p { color: #64748b; font-size: 0.95rem; margin-top: 5px; }
+    
+    /* Cabecera personalizada en Negro y Blanco */
+    .header { 
+      text-align: center; 
+      margin-bottom: 25px; 
+      background-color: #000000; 
+      padding: 25px 20px; 
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .header h1 { 
+      margin: 0; 
+      color: #ffffff; 
+      font-size: 1.8rem; 
+      font-weight: 700;
+    }
+    .header p { 
+      color: #ffffff; 
+      font-size: 0.95rem; 
+      margin-top: 8px; 
+      margin-bottom: 0;
+      opacity: 0.9;
+    }
+    .header .author {
+      color: #a1a1aa;
+      font-size: 0.85rem;
+      font-style: italic;
+      margin-top: 10px;
+    }
     
     .card { background: #ffffff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 20px; }
     .controls { display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
@@ -23,7 +49,7 @@
     /* Estilos para el gráfico individual / comparativo */
     .chart-box-single { position: relative; height: 60vh; width: 100%; }
 
-    /* Estilos para la Grilla (Layout de 3 columnas estilo Matplotlib) */
+    /* Estilos para la Grilla */
     .grid-container {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -54,6 +80,7 @@
   <div class="header">
     <h1>Perfil Diario de Generación RER - COES</h1>
     <p>Visualización interactiva de centrales Solares y Eólicas en el SEIN</p>
+    <div class="author">Diseñado por Jhon Palomino</div>
   </div>
 
   <div class="card">
