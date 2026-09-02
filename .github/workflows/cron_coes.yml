@@ -33,6 +33,7 @@ jobs:
       run: |
         git config --global user.name "COES Bot"
         git config --global user.email "actions@github.com"
-        git add historico_generacion_rer.csv perfil_generacion_rer.png
+        # Agregamos la carpeta data/ (o data/data.json) para que se incluya en el commit:
+        git add historico_generacion_rer.csv perfil_generacion_rer.png data/
         # Solo hacer commit si los archivos realmente cambiaron para evitar errores
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER y Gráfico - $(date +'%Y-%m-%d')" && git push)
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER, Gráfico y JSON - $(date +'%Y-%m-%d')" && git push)
