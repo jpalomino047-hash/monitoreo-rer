@@ -188,3 +188,43 @@ def generar_grafico_perfil(df):
 
 # Ejecución de la función
 generar_grafico_perfil(df_consolidado)
+# ==========================================
+# 3. EXPORTAR DATOS A JSON PARA GITHUB PAGES
+# ==========================================
+import json
+
+def exportar_a_json(df):
+    if df is None or df.empty:
+        return
+
+    # Crear carpeta 'data' si no existe
+    os.makedirs('data', exist_ok=True)
+    
+    centrales = [c for c in df.columns if c not in ['Fecha', 'Intervalo']]
+    
+    # Estructura del JSON final
+    estructura_json = {
+        "centrales": centrales,
+        "fechas": list(df['Fecha'].unique()),
+        "intervalos": list(df['Intervalo'].unique()[:48]),
+        "datos": {}
+    }
+
+    # Organizar datos: datos[central][fecha] = [48 valores MW]
+    for central in centrales:
+        estructura_json["datos"][central] = {}
+        for fecha, df_fecha in df.groupby('Fecha'):
+            # Convertir la columna a lista float
+            valores = df_fecha[central].fillna(0).astype(float).tolist()
+            # Asegurar exactamente 48 periodos
+            if len(valores) == 48:
+                estructura_json["datos"][central][fecha] = valores
+
+    json_path = os.path.join('data', 'data.json')
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(estructura_json, f, ensure_ascii=False, indent=2)
+    
+    print(f"¡Éxito! Datos exportados para la Web en '{json_path}'.")
+
+# Ejecutamos la exportación
+exportar_a_json(df_consolidado)
