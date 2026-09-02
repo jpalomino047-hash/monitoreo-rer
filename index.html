@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard COES - Generación RER (Solares y Eólicas)</title>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; color: #1a202c; }
+    .header { text-align: center; margin-bottom: 25px; }
+    .header h1 { margin: 0; color: #0f172a; font-size: 1.8rem; }
+    .header p { color: #64748b; font-size: 0.95rem; margin-top: 5px; }
+    
+    .card { background: #ffffff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 20px; }
+    .controls { display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
+    .control-group { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
+    label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 6px; }
+    select { padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; background-color: #fff; font-size: 0.9rem; outline: none; }
+    select:focus { border-color: #2563eb; }
+
+    .chart-box { position: relative; height: 62vh; width: 100%; }
+    .loading { text-align: center; padding: 50px; font-weight: bold; color: #64748b; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Perfil Diario de Generación RER - COES</h1>
+    <p>Visualización interactiva de centrales Solares y Eólicas en el SEIN</p>
+  </div>
+
+  <div class="card">
+    <div class="controls">
+      <div class="control-group">
+        <label for="select-modo">Modo de Análisis:</label>
+        <select id="select-modo" onchange="renderizarGrafico()">
+          <option value="individual">Superposición Mensual (1 Central - N Días)</option>
+          <option value="comparativa">Comparativa (1 Solar vs. 1 Eólica)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="select-mes">Año / Mes:</label>
+        <select id="select-mes" onchange="renderizarGrafico()"></select>
+      </div>
+
+      <!-- Filtro Individual -->
+      <div class="control-group" id="group-central-unica">
+        <label for="select-central">Central:</label>
+        <select id="select-central" onchange="renderizarGrafico()"></select>
+      </div>
+
+      <!-- Filtros Comparativa -->
+      <div class="control-group" id="group-solar" style="display: none;">
+        <label for="select-solar">Central Solar (C.S.):</label>
+        <select id="select-solar" onchange="renderizarGrafico()"></select>
+      </div>
+
+      <div class="control-group" id="group-eolica" style="display: none;">
+        <label for="select-eolica">Central Eólica (C.E.):</label>
+        <select id="select-eolica" onchange="renderizarGrafico()"></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="loading" class="loading">Cargando datos del COES...</div>
+    <div class="chart-box" id="chart-wrapper" style="display:none;">
+      <canvas id="coeschart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    let rawData = null;
+    let chartInstance = null;
+
+    // Cargar JSON exportado por el scraper
+    fetch('data/data.json')
+      .then(response => {
+        if (!response.ok) throw new Error("No se pudo cargar data/data.json");
+        return response.json();
+      })
+      .then(data => {
+        rawData = data;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('chart-wrapper').style.display = 'block';
+        inicializarFiltros();
+        renderizarGrafico();
+      })
+      .catch(err => {
+        document.getElementById('loading').innerText = "Error cargando los datos. Asegúrate de haber ejecutado el script en Python y subido 'data/data.json' a GitHub.";
+        console.error(err);
+      });
+
+    function inicializarFiltros() {
+      // 1. Llenar Meses disponibles (Extraídos de las fechasYYYY-MM)
+      const mesesSet = new Set();
+      rawData.fechas.forEach(f => mesesSet.add(f.substring(0, 7))); // "YYYY-MM"
+      const mesesArr = Array.from(mesesSet).sort().reverse();
+      
+      const selectMes = document.getElementById('select-mes');
+      selectMes.innerHTML = mesesArr.map(m => `<option value="${m}">${m}</option>`).join('');
+
+      // 2. Clasificar Centrales por Tipo
+      const centrales = rawData.centrales;
+      const selectCentral = document.getElementById('select-central');
+      const selectSolar = document.getElementById('select-solar');
+      const selectEolica = document.getElementById('select-eolica');
+
+      selectCentral.innerHTML = centrales.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      const solares = centrales.filter(c => c.toUpperCase().includes('C.S.') || c.toUpperCase().includes('CS'));
+      const eolicas = centrales.filter(c => c.toUpperCase().includes('C.E.') || c.toUpperCase().includes('CE'));
+
+      selectSolar.innerHTML = (solares.length ? solares : centrales).map(c => `<option value="${c}">${c}</option>`).join('');
+      selectEolica.innerHTML = (eolicas.length ? eolicas : centrales).map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+
+    function renderizarGrafico() {
+      if (!rawData) return;
+
+      const modo = document.getElementById('select-modo').value;
+      const mesSeleccionado = document.getElementById('select-mes').value; // "YYYY-MM"
+
+      // Controlar visibilidad de selectores
+      if (modo === 'individual') {
+        document.getElementById('group-central-unica').style.display = 'flex';
+        document.getElementById('group-solar').style.display = 'none';
+        document.getElementById('group-eolica').style.display = 'none';
+      } else {
+        document.getElementById('group-central-unica').style.display = 'none';
+        document.getElementById('group-solar').style.display = 'flex';
+        document.getElementById('group-eolica').style.display = 'flex';
+      }
+
+      const ctx = document.getElementById('coeschart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      let datasets = [];
+
+      if (modo === 'individual') {
+        const central = document.getElementById('select-central').value;
+        const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
+
+        // Un dataset por cada día del mes (ej. 31 líneas superpuestas)
+        fechasDelMes.forEach(fecha => {
+          const valoresDia = rawData.datos[central]?.[fecha];
+          if (valoresDia) {
+            const diaNum = fecha.split('-')[2];
+            datasets.push({
+              label: `Día ${diaNum}`,
+              data: valoresDia,
+              borderColor: 'rgba(37, 99, 235, 0.35)', // Azul traslúcido para ver densidad
+              borderWidth: 1.5,
+              pointRadius: 0,
+              fill: false
+            });
+          }
+        });
+      } else {
+        // Modo Comparativa: Calcula el perfil Promedio Mensual de Solar vs Eólica
+        const cSolar = document.getElementById('select-solar').value;
+        const cEolica = document.getElementById('select-eolica').value;
+        const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
+
+        const calcularPromedio = (central) => {
+          let suma = new Array(48).fill(0);
+          let cuenta = 0;
+          fechasDelMes.forEach(fecha => {
+            const vals = rawData.datos[central]?.[fecha];
+            if (vals) {
+              vals.forEach((v, idx) => suma[idx] += v);
+              cuenta++;
+            }
+          });
+          return cuenta > 0 ? suma.map(v => v / cuenta) : suma;
+        };
+
+        datasets.push({
+          label: `Solar: ${cSolar} (Promedio)`,
+          data: calcularPromedio(cSolar),
+          borderColor: '#f59e0b', // Ámbar / Naranja
+          backgroundColor: 'rgba(245, 158, 11, 0.15)',
+          borderWidth: 3,
+          pointRadius: 2,
+          fill: true
+        });
+
+        datasets.push({
+          label: `Eólica: ${cEolica} (Promedio)`,
+          data: calcularPromedio(cEolica),
+          borderColor: '#10b981', // Esmeralda / Verde
+          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+          borderWidth: 3,
+          pointRadius: 2,
+          fill: true
+        });
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: rawData.intervalos,
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: modo !== 'individual' },
+            tooltip: { enabled: true }
+          },
+          scales: {
+            x: { 
+              title: { display: true, text: 'Intervalo de 30 minutos (00:30 a 24:00)' },
+              ticks: { maxRotation: 90, font: { size: 9 } }
+            },
+            y: { 
+              title: { display: true, text: 'Potencia Activa (MW)' },
+              beginAtZero: true 
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
