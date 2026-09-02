@@ -24,7 +24,6 @@ def cargar_datos():
     # Limpiar espacios en nombres de columnas
     df.columns = df.columns.str.strip()
     
-    # Identificar columnas clave de tiempo
     col_fecha = df.columns[0]      # "Fecha"
     col_intervalo = df.columns[1]  # "Intervalo"
     
@@ -34,7 +33,7 @@ def cargar_datos():
     df['mes_num'] = fecha_dt.dt.month
     df['dia'] = fecha_dt.dt.day
     
-    # Función para convertir intervalos ("0:30", "1:00", etc.) a número decimal (0.0 a 24.0)
+    # Parser mejorado de hora a decimal
     def hora_a_decimal(cadena_hora):
         try:
             cadena_hora = str(cadena_hora).strip()
@@ -43,19 +42,21 @@ def cargar_datos():
                 h = float(partes[0])
                 m = float(partes[1])
                 val = h + (m / 60.0)
-                return 24.0 if (val == 0.0 and h != 0) else val
+                # Manejar medianoche fin de día (24:00)
+                if h == 24 or (h == 0 and m == 0 and cadena_hora.startswith('24')):
+                    return 24.0
+                return val
             return np.nan
         except:
             return np.nan
 
-    # Extraer hora decimal desde 'Intervalo'
     df['hora_decimal'] = df[col_intervalo].apply(hora_a_decimal)
 
     # Fallback si falla el parseo
     if df['hora_decimal'].isna().any():
         df['hora_decimal'] = df.groupby(['año', 'mes_num', 'dia']).cumcount() * 0.5
 
-    # Convertir a flotante SOLO las columnas de centrales
+    # Convertir a número las columnas de centrales
     cols_excluir_conversion = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_intervalo]
     for col in df.columns:
         if col not in cols_excluir_conversion:
@@ -146,7 +147,6 @@ if central_sel and not df_fil.empty:
     dias = sorted(df_fil['dia'].dropna().unique())
 
     # 1. TRAZADO DE CENTRAL PRINCIPAL (AZUL)
-    # Perfiles diarios tenues
     for d in dias:
         df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
         if not df_d.empty:
@@ -177,7 +177,6 @@ if central_sel and not df_fil.empty:
 
     # 2. TRAZADO DE SEGUNDA CENTRAL SI FUE SELECCIONADA (NARANJA)
     if central_sel_2 != "Ninguna (Solo Central Principal)":
-        # Perfiles diarios tenues en naranja
         for d in dias:
             df_d = df_fil[df_fil['dia'] == d].sort_values('hora_decimal')
             if not df_d.empty:
