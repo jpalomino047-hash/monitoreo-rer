@@ -198,6 +198,11 @@ def exportar_a_json(df):
         print("[Aviso] No hay datos disponibles para exportar a JSON.")
         return
 
+    # Si 'data' existe como ARCHIVO (en vez de carpeta) por algún residuo
+    # anterior en el repo, lo eliminamos antes de crear la carpeta real.
+    if os.path.exists('data') and not os.path.isdir('data'):
+        os.remove('data')
+
     # Crear carpeta 'data' si no existe
     os.makedirs('data', exist_ok=True)
 
