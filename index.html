@@ -177,7 +177,6 @@
 
         const cLower = central.toLowerCase();
         
-        // Clasificación por palabras clave habituales
         if (cLower.includes('solar') || cLower.includes('cs') || cLower.includes('rubi') || cLower.includes('inti') || cLower.includes('reparticion') || cLower.includes('majes')) {
           selectSolar.appendChild(optS);
         } else {
@@ -185,7 +184,6 @@
         }
       });
 
-      // Respaldos si no se clasifican por nombre
       if (selectSolar.options.length === 0) {
         rawData.centrales.forEach(c => selectSolar.add(new Option(c, c)));
       }
@@ -221,7 +219,7 @@
         fechasDelMes.forEach(fechaKey => {
           const vals = rawData.datos[centralName]?.[fechaKey];
           if (vals && vals.length === 48) {
-            vals.forEach((v, i) => suma[i] += (v || 0));
+            vals.forEach((v, i) => suma[i] += (parseFloat(v) || 0));
             cuenta++;
           }
         });
@@ -295,7 +293,7 @@
       });
     }
 
-    // 6. Renderizar Grilla de Centrales Individuales (Filtrando vacías)
+    // 6. Renderizar Grilla de Centrales Individuales (Filtrando estrictamente sin generación)
     function renderizarGrilla() {
       const selectMes = document.getElementById('select-mes');
       if (!selectMes || !selectMes.value) return;
@@ -313,17 +311,25 @@
         let datasets = [];
         let suma = new Array(48).fill(0);
         let cuentaDiasConData = 0;
-        let sumaTotalMes = 0; // Acumulador global para verificar si la central generó energía
+        let tieneGeneracionEfectiva = false; // Flag estricto
 
         fechasDelMes.forEach(fechaKey => {
           const vals = rawData.datos[central]?.[fechaKey];
           
           if (vals && Array.isArray(vals) && vals.length === 48) {
-            const sumaDia = vals.reduce((acc, curr) => acc + (curr || 0), 0);
-            sumaTotalMes += sumaDia;
+            // Convierte a número flotante cada elemento
+            const cleanVals = vals.map(v => {
+              const num = parseFloat(v);
+              return isNaN(num) ? 0 : num;
+            });
+
+            // Si hay al menos un valor mayor a 0.01 MW, consideramos que la central operó
+            if (cleanVals.some(v => v > 0.01)) {
+              tieneGeneracionEfectiva = true;
+            }
 
             datasets.push({
-              data: vals,
+              data: cleanVals,
               borderColor: 'rgba(148, 163, 184, 0.2)',
               borderWidth: 1,
               pointRadius: 0,
@@ -331,14 +337,13 @@
               order: 2
             });
 
-            vals.forEach((v, i) => suma[i] += (v || 0));
+            cleanVals.forEach((v, i) => suma[i] += v);
             cuentaDiasConData++;
           }
         });
 
-        // FILTRO ANTI-GRÁFICOS VACÍOS:
-        // Se omite la tarjeta si no hay días con datos o si la generación acumulada es cero.
-        if (cuentaDiasConData === 0 || sumaTotalMes <= 0.001) return;
+        // FILTRO ESTRUCTURAL: Si no hay un solo punto mayor a 0.01 MW en todo el mes, se descarta.
+        if (!tieneGeneracionEfectiva || cuentaDiasConData === 0) return;
 
         const card = document.createElement('div');
         card.className = 'grid-card';
