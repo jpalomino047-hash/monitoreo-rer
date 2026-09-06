@@ -3,276 +3,222 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard COES - Generación RER (Solares y Eólicas)</title>
+  <title>Dashboard - Perfiles Diarios de Generación RER</title>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { box-sizing: border-box; }
-    
-    /* Fondo general totalmente negro / gris oscuro */
     body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      margin: 0; 
-      padding: 20px; 
-      background-color: #090d16; 
-      color: #f1f5f9; 
+      background-color: #0b1329; 
+      color: #f8fafc; 
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
     }
-    
-    /* Cabecera principal */
-    .header { 
-      text-align: center; 
-      margin-bottom: 25px; 
-      background-color: #000000; 
-      padding: 25px 20px; 
-      border-radius: 12px;
-      border: 1px solid #1e293b;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    .grid-card { 
+      background-color: #1e293b; 
+      border-radius: 0.5rem; 
+      padding: 1rem; 
+      border: 1px solid #334155; 
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
-    .header h1 { 
-      margin: 0; 
-      color: #ffffff; 
-      font-size: 1.8rem; 
-      font-weight: 700;
-    }
-    .header p { 
-      color: #cbd5e1; 
-      font-size: 0.95rem; 
-      margin-top: 8px; 
-      margin-bottom: 0;
-    }
-    .header .author {
-      color: #94a3b8;
-      font-size: 0.85rem;
-      font-style: italic;
-      margin-top: 10px;
-    }
-    
-    /* Tarjetas de controles y gráficos en fondo oscuro */
-    .card { 
-      background: #111827; 
-      border-radius: 12px; 
-      padding: 20px; 
-      border: 1px solid #1f2937;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); 
-      margin-bottom: 20px; 
-    }
-    
-    .controls { display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
-    .control-group { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
-    
-    label { 
-      font-size: 0.85rem; 
+    .grid-card h3 { 
+      font-size: 0.875rem; 
       font-weight: 600; 
-      color: #94a3b8; 
-      margin-bottom: 6px; 
+      color: #cbd5e1; 
+      margin-bottom: 0.5rem; 
+      text-align: center; 
     }
-    
-    /* Estilos de los selectores para tema oscuro */
-    select { 
-      padding: 10px; 
-      border-radius: 6px; 
-      border: 1px solid #374151; 
-      background-color: #1f2937; 
-      color: #f3f4f6; 
-      font-size: 0.9rem; 
-      outline: none; 
+    .grid-chart-box { 
+      position: relative; 
+      height: 180px; 
+      width: 100%; 
     }
-    select:focus { border-color: #3b82f6; }
-
-    /* Estilos para gráfico único */
-    .chart-box-single { position: relative; height: 60vh; width: 100%; }
-
-    /* Estilos para la Grilla de tarjetas oscuras */
-    .grid-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 20px;
-    }
-    .grid-card {
-      background: #111827;
-      border: 1px solid #1f2937;
-      border-radius: 10px;
-      padding: 15px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    .grid-card h3 {
-      font-size: 0.95rem;
-      margin: 0 0 10px 0;
-      color: #f3f4f6;
-      text-align: center;
-      border-bottom: 1px solid #1f2937;
-      padding-bottom: 6px;
-    }
-    .grid-chart-box { position: relative; height: 220px; width: 100%; }
-
-    .loading { text-align: center; padding: 50px; font-weight: bold; color: #94a3b8; }
   </style>
 </head>
-<body>
+<body class="p-6">
 
-  <div class="header">
-    <h1>Perfil Diario de Generación RER - COES</h1>
-    <p>Visualización interactiva de centrales Solares y Eólicas en el SEIN</p>
-    <div class="author">Diseñado por Jhon Palomino</div>
-  </div>
+  <!-- BARRA DE CONTROL -->
+  <div class="mb-6 flex flex-wrap items-center justify-between bg-slate-800 p-4 rounded-lg border border-slate-700 gap-4">
+    <div>
+      <h1 class="text-xl font-bold text-white">Perfiles Diarios de Generación</h1>
+      <p class="text-xs text-slate-400">Grilla con perfil diario y curva promedio mensual destacada</p>
+    </div>
+    
+    <div class="flex items-center space-x-4">
+      <!-- Botón para carga manual si se abre como file:// (evita bloqueo CORS) -->
+      <label class="cursor-pointer bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs px-3 py-2 rounded-md border border-slate-600 transition flex items-center gap-2">
+        <span>📁 Cargar data.json</span>
+        <input type="file" id="input-json" accept=".json" class="hidden" onchange="cargarJSONManual(event)">
+      </label>
 
-  <div class="card">
-    <div class="controls">
-      <div class="control-group">
-        <label for="select-modo">Modo de Análisis:</label>
-        <select id="select-modo" onchange="actualizarInterfaz()">
-          <option value="grilla">Grilla Completa (Todas las Centrales)</option>
-          <option value="individual">Superposición Mensual (1 Central - N Días)</option>
-          <option value="comparativa">Comparativa (1 Solar vs. 1 Eólica)</option>
+      <!-- Selector dinámico de mes -->
+      <div class="flex items-center space-x-2">
+        <label for="select-mes" class="text-sm text-slate-300 font-medium">Seleccionar Mes:</label>
+        <select id="select-mes" onchange="actualizarVista()" class="bg-slate-900 border border-slate-700 text-white text-sm rounded-md p-2 focus:ring-2 focus:ring-orange-500 outline-none min-w-[140px]">
+          <!-- Se llena dinámicamente -->
         </select>
       </div>
-
-      <div class="control-group">
-        <label for="select-mes">Año / Mes:</label>
-        <select id="select-mes" onchange="renderizar()"></select>
-      </div>
-
-      <!-- Filtro Individual -->
-      <div class="control-group" id="group-central-unica" style="display: none;">
-        <label for="select-central">Central:</label>
-        <select id="select-central" onchange="renderizar()"></select>
-      </div>
-
-      <!-- Filtros Comparativa -->
-      <div class="control-group" id="group-solar" style="display: none;">
-        <label for="select-solar">Central Solar (C.S.):</label>
-        <select id="select-solar" onchange="renderizar()"></select>
-      </div>
-
-      <div class="control-group" id="group-eolica" style="display: none;">
-        <label for="select-eolica">Central Eólica (C.E.):</label>
-        <select id="select-eolica" onchange="renderizar()"></select>
-      </div>
     </div>
   </div>
 
-  <div id="loading" class="loading">Cargando datos del COES...</div>
-
-  <!-- Vista 1: Gráfico Individual o Comparativo -->
-  <div class="card" id="card-single-chart" style="display:none;">
-    <div class="chart-box-single">
-      <canvas id="singleChart"></canvas>
-    </div>
+  <!-- CONTENEDOR DE LA GRILLA -->
+  <div id="grid-wrapper" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <!-- Las tarjetas se generan dinámicamente -->
   </div>
-
-  <!-- Vista 2: Grilla de Múltiples Centrales -->
-  <div id="grid-wrapper" class="grid-container" style="display:none;"></div>
 
   <script>
-    let rawData = null;
-    let singleChartInstance = null;
+    // Etiquetas de 48 tramos horarios (cada 30 min)
+    const etiquetas48 = Array.from({ length: 48 }, (_, i) => {
+      const hh = String(Math.floor(i / 2)).padStart(2, '0');
+      const mm = i % 2 === 0 ? '00' : '30';
+      return `${hh}:${mm}`;
+    });
+
+    let rawData = { fechas: [], centrales: [], datos: {} };
     let gridChartInstances = [];
-    let etiquetas48 = []; // Guardará exactamente los 48 bloques semihorarios de 00:30 a 24:00
 
-    Chart.defaults.color = '#94a3b8';
-    Chart.defaults.borderColor = '#1f2937';
+    // 1. Intento de carga automática vía HTTP/Fetch
+    async function cargarDatos() {
+      const rutas = ['data/data.json', 'data.json', './data/data.json'];
+      let cargado = false;
 
-    // Cargar JSON exportado por el scraper
-    fetch('data/data.json')
-      .then(response => {
-        if (!response.ok) throw new Error("No se pudo cargar data/data.json");
-        return response.json();
-      })
-      .then(data => {
-        rawData = data;
-        
-        // CORRECCIÓN EJE X: Normalizar a exactamente 48 intervalos (00:30 a 24:00)
-        if (rawData.intervalos && rawData.intervalos.length >= 48) {
-          etiquetas48 = rawData.intervalos.slice(0, 48);
-        } else {
-          // Fallback de 48 bloques por si el JSON estuviera corrupto
-          etiquetas48 = [];
-          for (let i = 1; i <= 48; i++) {
-            let mins = i * 30;
-            let h = Math.floor(mins / 60);
-            let m = mins % 60;
-            if (h === 24) {
-              etiquetas48.push("24:00");
-            } else {
-              etiquetas48.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-            }
+      for (const ruta of rutas) {
+        try {
+          const resp = await fetch(ruta + '?v=' + Date.now());
+          if (resp.ok) {
+            rawData = await resp.json();
+            cargado = true;
+            console.log(`✅ Data cargada automáticamente desde: ${ruta}`);
+            break;
           }
+        } catch (e) {
+          // Si falla una ruta, prueba la siguiente
         }
-
-        document.getElementById('loading').style.display = 'none';
-        inicializarFiltros();
-        actualizarInterfaz();
-      })
-      .catch(err => {
-        document.getElementById('loading').innerText = "Error cargando los datos. Asegúrate de haber ejecutado el script en Python y subido 'data/data.json' a GitHub.";
-        console.error(err);
-      });
-
-    function inicializarFiltros() {
-      const mesesSet = new Set();
-      rawData.fechas.forEach(f => mesesSet.add(f.substring(0, 7)));
-      const mesesArr = Array.from(mesesSet).sort().reverse();
-      
-      const selectMes = document.getElementById('select-mes');
-      selectMes.innerHTML = mesesArr.map(m => `<option value="${m}">${m}</option>`).join('');
-
-      const centrales = rawData.centrales;
-      const selectCentral = document.getElementById('select-central');
-      const selectSolar = document.getElementById('select-solar');
-      const selectEolica = document.getElementById('select-eolica');
-
-      selectCentral.innerHTML = centrales.map(c => `<option value="${c}">${c}</option>`).join('');
-
-      const solares = centrales.filter(c => c.toUpperCase().includes('C.S.') || c.toUpperCase().includes('CS'));
-      const eolicas = centrales.filter(c => c.toUpperCase().includes('C.E.') || c.toUpperCase().includes('CE'));
-
-      selectSolar.innerHTML = (solares.length ? solares : centrales).map(c => `<option value="${c}">${c}</option>`).join('');
-      selectEolica.innerHTML = (eolicas.length ? eolicas : centrales).map(c => `<option value="${c}">${c}</option>`).join('');
-    }
-
-    function actualizarInterfaz() {
-      const modo = document.getElementById('select-modo').value;
-
-      document.getElementById('group-central-unica').style.display = (modo === 'individual') ? 'flex' : 'none';
-      document.getElementById('group-solar').style.display = (modo === 'comparativa') ? 'flex' : 'none';
-      document.getElementById('group-eolica').style.display = (modo === 'comparativa') ? 'flex' : 'none';
-
-      if (modo === 'grilla') {
-        document.getElementById('card-single-chart').style.display = 'none';
-        document.getElementById('grid-wrapper').style.display = 'grid';
-      } else {
-        document.getElementById('card-single-chart').style.display = 'block';
-        document.getElementById('grid-wrapper').style.display = 'none';
       }
 
-      renderizar();
-    }
-
-    function renderizar() {
-      if (!rawData) return;
-      const modo = document.getElementById('select-modo').value;
-
-      if (modo === 'grilla') {
+      if (cargado) {
+        poblarDesplegableMeses();
         renderizarGrilla();
       } else {
-        renderizarGraficoUnico(modo);
+        console.warn("⚠️ No se pudo cargar el JSON automáticamente por rutas relativas. Usa el botón 'Cargar data.json'.");
       }
     }
 
-    // ==========================================
-    // RENDER: GRILLA DE TODAS LAS CENTRALES
-    // ==========================================
+    // 2. Carga manual para abrir con doble clic desde el Explorador de Archivos
+    function cargarJSONManual(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          rawData = JSON.parse(e.target.result);
+          poblarDesplegableMeses();
+          renderizarGrilla();
+          console.log("✅ JSON cargado manualmente.");
+        } catch (err) {
+          alert("Error al parsear el archivo JSON seleccionado.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // 3. Poblar el selector de meses dinámicamente (Enero a Septiembre)
+    function poblarDesplegableMeses() {
+      const selectMes = document.getElementById('select-mes');
+      selectMes.innerHTML = '';
+
+      if (!rawData.fechas || rawData.fechas.length === 0) return;
+
+      const mesesSet = new Set();
+      rawData.fechas.forEach(fecha => {
+        if (fecha && fecha.length >= 7) {
+          mesesSet.add(fecha.substring(0, 7)); // Formato YYYY-MM
+        }
+      });
+
+      const mesesOrdenados = Array.from(mesesSet).sort();
+
+      const nombresMeses = {
+        '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+        '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+        '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre'
+      };
+
+      mesesOrdenados.forEach(mesKey => {
+        const partes = mesKey.split('-');
+        const anio = partes[0];
+        const mesNum = partes[1];
+        const option = document.createElement('option');
+        option.value = mesKey;
+        option.textContent = `${nombresMeses[mesNum] || mesNum} ${anio}`;
+        selectMes.appendChild(option);
+      });
+
+      // Seleccionar por defecto el mes más reciente
+      if (mesesOrdenados.length > 0) {
+        selectMes.value = mesesOrdenados[mesesOrdenados.length - 1];
+      }
+    }
+
+    function actualizarVista() {
+      renderizarGrilla();
+    }
+
+    // 4. Renderizar Grilla (Línea promedio naranja + Omitir gráficos vacíos)
     function renderizarGrilla() {
-      const mesSeleccionado = document.getElementById('select-mes').value;
+      const selectMes = document.getElementById('select-mes');
+      if (!selectMes || !selectMes.value) return;
+
+      const mesSeleccionado = selectMes.value;
       const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
-      const ultimaFecha = fechasDelMes[fechasDelMes.length - 1];
       const gridWrapper = document.getElementById('grid-wrapper');
 
+      // Limpiar instancias previas para liberar memoria
       gridChartInstances.forEach(inst => inst.destroy());
       gridChartInstances = [];
       gridWrapper.innerHTML = '';
 
+      if (!rawData.centrales) return;
+
       rawData.centrales.forEach((central, idx) => {
+        let datasets = [];
+        let suma = new Array(48).fill(0);
+        let cuentaDiasConData = 0;
+        let tieneAlgúnDatoValido = false;
+
+        fechasDelMes.forEach(fecha => {
+          const vals = rawData.datos[central]?.[fecha];
+          
+          if (vals && Array.isArray(vals) && vals.length > 0) {
+            const tramo48 = vals.slice(0, 48);
+            
+            // Comprobar si hay generación mayor a cero
+            if (tramo48.some(v => v > 0)) {
+              tieneAlgúnDatoValido = true;
+            }
+
+            // Trazo diario en gris tenue
+            datasets.push({
+              data: tramo48,
+              borderColor: 'rgba(148, 163, 184, 0.25)',
+              borderWidth: 1,
+              pointRadius: 0,
+              fill: false,
+              order: 2
+            });
+
+            tramo48.forEach((v, i) => suma[i] += (v || 0));
+            cuentaDiasConData++;
+          }
+        });
+
+        // FILTRO: No dibuja la tarjeta si la central está totalmente en cero o sin data
+        if (!tieneAlgúnDatoValido || cuentaDiasConData === 0) {
+          return;
+        }
+
+        // Crear contenedor de la tarjeta
         const card = document.createElement('div');
         card.className = 'grid-card';
         
@@ -290,36 +236,19 @@
         card.appendChild(box);
         gridWrapper.appendChild(card);
 
-        let datasets = [];
-
-        // 1. Días anteriores en gris tenue (forzando slice a 48 valores)
-        fechasDelMes.forEach(fecha => {
-          if (fecha === ultimaFecha) return;
-          const vals = rawData.datos[central]?.[fecha];
-          if (vals) {
-            datasets.push({
-              data: vals.slice(0, 48),
-              borderColor: 'rgba(148, 163, 184, 0.2)',
-              borderWidth: 1,
-              pointRadius: 0,
-              fill: false
-            });
-          }
+        // CURVA PROMEDIO MENSUAL (Naranja brillante, trazado superior)
+        const promedio = suma.map(v => v / cuentaDiasConData);
+        datasets.push({
+          label: 'Promedio Mensual',
+          data: promedio,
+          borderColor: '#f97316', // Orange-500
+          borderWidth: 2.5,
+          pointRadius: 0,
+          fill: false,
+          order: 1 // Forzar renderizado por encima de las líneas grises
         });
 
-        // 2. Último día del mes en naranja vibrante (slice a 48 valores)
-        const valsUltimo = rawData.datos[central]?.[ultimaFecha];
-        if (valsUltimo) {
-          datasets.push({
-            label: `Día ${ultimaFecha.split('-')[2]}`,
-            data: valsUltimo.slice(0, 48),
-            borderColor: '#f97316',
-            borderWidth: 2,
-            pointRadius: 0,
-            fill: false
-          });
-        }
-
+        // Inicializar gráfico de Chart.js
         const ctx = canvas.getContext('2d');
         const chart = new Chart(ctx, {
           type: 'line',
@@ -327,16 +256,26 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: false,
             plugins: {
               legend: { display: false },
-              tooltip: { enabled: true }
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    return context.dataset.label === 'Promedio Mensual'
+                      ? `Promedio: ${context.parsed.y.toFixed(2)} MW`
+                      : `Generación: ${context.parsed.y.toFixed(2)} MW`;
+                  }
+                }
+              }
             },
             scales: {
               x: { ticks: { display: false }, grid: { display: false } },
               y: { 
                 beginAtZero: true,
                 title: { display: true, text: 'MW', font: { size: 10 } },
-                ticks: { font: { size: 9 } }
+                ticks: { font: { size: 9 }, color: '#94a3b8' },
+                grid: { color: 'rgba(51, 65, 85, 0.4)' }
               }
             }
           }
@@ -346,97 +285,8 @@
       });
     }
 
-    // ==========================================
-    // RENDER: VISTA INDIVIDUAL / COMPARATIVA
-    // ==========================================
-    function renderizarGraficoUnico(modo) {
-      const mesSeleccionado = document.getElementById('select-mes').value;
-      const ctx = document.getElementById('singleChart').getContext('2d');
-      if (singleChartInstance) singleChartInstance.destroy();
-
-      let datasets = [];
-
-      if (modo === 'individual') {
-        const central = document.getElementById('select-central').value;
-        const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
-
-        fechasDelMes.forEach(fecha => {
-          const valoresDia = rawData.datos[central]?.[fecha];
-          if (valoresDia) {
-            const diaNum = fecha.split('-')[2];
-            datasets.push({
-              label: `Día ${diaNum}`,
-              data: valoresDia.slice(0, 48),
-              borderColor: 'rgba(59, 130, 246, 0.4)',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: false
-            });
-          }
-        });
-      } else {
-        const cSolar = document.getElementById('select-solar').value;
-        const cEolica = document.getElementById('select-eolica').value;
-        const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
-
-        const calcularPromedio = (central) => {
-          let suma = new Array(48).fill(0);
-          let cuenta = 0;
-          fechasDelMes.forEach(fecha => {
-            const vals = rawData.datos[central]?.[fecha];
-            if (vals) {
-              vals.slice(0, 48).forEach((v, idx) => suma[idx] += v);
-              cuenta++;
-            }
-          });
-          return cuenta > 0 ? suma.map(v => v / cuenta) : suma;
-        };
-
-        datasets.push({
-          label: `Solar: ${cSolar} (Promedio)`,
-          data: calcularPromedio(cSolar),
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245, 158, 11, 0.15)',
-          borderWidth: 3,
-          pointRadius: 2,
-          fill: true
-        });
-
-        datasets.push({
-          label: `Eólica: ${cEolica} (Promedio)`,
-          data: calcularPromedio(cEolica),
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16, 185, 129, 0.15)',
-          borderWidth: 3,
-          pointRadius: 2,
-          fill: true
-        });
-      }
-
-      singleChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: { labels: etiquetas48, datasets: datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { display: modo !== 'individual' },
-            tooltip: { enabled: true }
-          },
-          scales: {
-            x: { 
-              title: { display: true, text: 'Intervalo semihorario (00:30 a 24:00)' },
-              ticks: { maxRotation: 90, font: { size: 9 } }
-            },
-            y: { 
-              title: { display: true, text: 'Potencia Activa (MW)' },
-              beginAtZero: true 
-            }
-          }
-        }
-      });
-    }
+    // Ejecutar al cargar la ventana
+    window.onload = cargarDatos;
   </script>
 </body>
 </html>
