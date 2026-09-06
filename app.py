@@ -10,13 +10,13 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("⚡ Monitoreo RER - Perfiles de Generación Diario")
+st.title("Monitoreo RER - Perfiles de Generación Diario")
 st.markdown("Visualización superpuesta del perfil de generación diaria por central y mes.")
 
 # -----------------------------------------------------------------------------
 # CARGA Y PARSEO DE DATOS
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)  # Reducido a 10 minutos para refrescar más seguido
 def cargar_datos():
     url_raw = "https://raw.githubusercontent.com/jpalomino047-hash/monitoreo-rer/main/historico_generacion_rer.csv"
     df = pd.read_csv(url_raw)
@@ -27,13 +27,14 @@ def cargar_datos():
     col_fecha = df.columns[0]      # "Fecha"
     col_intervalo = df.columns[1]  # "Intervalo"
     
-    # Parsear Fecha para extraer Año, Mes y Día
-    fecha_dt = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
+    # Parsear Fecha de forma robusta soportando ISO (YYYY-MM-DD) y formato corto (DD/MM/YYYY)
+    fecha_dt = pd.to_datetime(df[col_fecha], format='mixed', dayfirst=True, errors='coerce')
+    
     df['año'] = fecha_dt.dt.year
     df['mes_num'] = fecha_dt.dt.month
     df['dia'] = fecha_dt.dt.day
     
-    # Parser mejorado de hora a decimal
+    # Parser de hora a decimal
     def hora_a_decimal(cadena_hora):
         try:
             cadena_hora = str(cadena_hora).strip()
@@ -42,7 +43,6 @@ def cargar_datos():
                 h = float(partes[0])
                 m = float(partes[1])
                 val = h + (m / 60.0)
-                # Manejar medianoche fin de día (24:00)
                 if h == 24 or (h == 0 and m == 0 and cadena_hora.startswith('24')):
                     return 24.0
                 return val
@@ -52,7 +52,7 @@ def cargar_datos():
 
     df['hora_decimal'] = df[col_intervalo].apply(hora_a_decimal)
 
-    # Fallback si falla el parseo
+    # Fallback si falla el parseo de horas
     if df['hora_decimal'].isna().any():
         df['hora_decimal'] = df.groupby(['año', 'mes_num', 'dia']).cumcount() * 0.5
 
@@ -79,6 +79,11 @@ cols_excluir = ['año', 'mes_num', 'dia', 'hora_decimal', col_fecha, col_interva
 cols_centrales = [c for c in df_raw.columns if c not in cols_excluir]
 
 st.sidebar.header("🔍 Filtros")
+
+# Botón para forzar la recarga del CSV desde GitHub
+if st.sidebar.button("🔄 Recargar datos desde GitHub"):
+    st.cache_data.clear()
+    st.rerun()
 
 # Filtro Año
 años_validos = df_raw['año'].dropna().unique()
