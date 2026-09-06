@@ -1,250 +1,45 @@
-import os
-import io
-import re
-import json
-import zipfile
-import warnings
-import traceback
-import requests
-import pandas as pd
-from datetime import datetime, timedelta
-from openpyxl import load_workbook
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
-requests.packages.urllib3.disable_warnings()
-
-# 1. Calcular automáticamente el día de ayer en la zona horaria de Perú (GMT-5)
-hora_peru = datetime.utcnow() - timedelta(hours=5)
-ayer = hora_peru - timedelta(days=1)
-
-dia_str = ayer.strftime("%d")
-mes_num = ayer.strftime("%m")
-anio_str = ayer.strftime("%Y")
-
-meses_es = {
-    "01": "01_Enero", "02": "02_Febrero", "03": "03_Marzo", "04": "04_Abril",
-    "05": "05_Mayo", "06": "06_Junio", "07": "07_Julio", "08": "08_Agosto",
-    "09": "09_Septiembre", "10": "10_Octubre", "11": "11_Noviembre", "12": "12_Diciembre"
-}
-mes_carpeta = meses_es[mes_num]
-
-url = (
-    f"https://www.coes.org.pe/portal/browser/download?url=Post%20Operaci%C3%B3n"
-    f"%2FReportes%2FIEOD%2F{anio_str}%2F{mes_carpeta}%2F{dia_str}%2FAnexoA_{dia_str}{mes_num}.xlsx"
-)
-
-filename = f"AnexoA_{dia_str}{mes_num}.xlsx"
-print(f"Fecha de procesamiento (Ayer): {ayer.strftime('%Y-%m-%d')}")
-print(f"Descargando desde COES: {filename}")
-
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-
-csv_historico = "historico_generacion_rer.csv"
-# Definición inicial obligatoria para evitar NameError
-df_consolidado = None
-
-# Manejo seguro de la descarga y extracción
-try:
-    response = requests.get(url, headers=headers, verify=False, timeout=30)
-    if response.status_code != 200:
-        print(f"[Aviso] Archivo no disponible en el servidor del COES (Status: {response.status_code}).")
-    else:
-        content_bytes = io.BytesIO(response.content)
-        if zipfile.is_zipfile(content_bytes):
-            wb = load_workbook(filename=content_bytes, data_only=True)
-            if "GENERACION RER" in wb.sheetnames:
-                ws = wb["GENERACION RER"]
-                fecha_formateada = ayer.strftime("%Y-%m-%d")
-                centrales_detectadas = {}
-
-                for col in range(1, ws.max_column + 1):
-                    celda_val = ws.cell(row=7, column=col).value
-                    if celda_val:
-                        texto_celda = str(celda_val).strip().upper()
-                        es_eolica = bool(re.search(r'\bC\.E\.|\bCE\b', texto_celda))
-                        es_solar = bool(re.search(r'\bC\.S\.|\bCS\b', texto_celda))
-
-                        if es_eolica or es_solar:
-                            tipo_completo = "Eólica" if es_eolica else "Solar"
-                            centrales_detectadas[col] = {
-                                'nombre': str(celda_val).strip(),
-                                'tipo': tipo_completo
-                            }
-
-                datos_dia = []
-                for row in range(8, 56):
-                    intervalo = ws.cell(row=row, column=2).value or ws.cell(row=row, column=1).value
-                    registro = {
-                        'Fecha': fecha_formateada,
-                        'Intervalo': str(intervalo).strip() if intervalo else f"H_{row-7}"
-                    }
-
-                    for col, info in centrales_detectadas.items():
-                        val = ws.cell(row=row, column=col).value
-                        try:
-                            registro[info['nombre']] = float(val) if val is not None else 0.0
-                        except ValueError:
-                            registro[info['nombre']] = 0.0
-
-                    datos_dia.append(registro)
-
-                df_nuevo = pd.DataFrame(datos_dia)
-
-                if not df_nuevo.empty:
-                    columnas_activas = ['Fecha', 'Intervalo']
-                    for col in df_nuevo.columns:
-                        if col in ['Fecha', 'Intervalo']:
-                            continue
-                        if df_nuevo[col].abs().sum() > 0.01:
-                            columnas_activas.append(col)
-                    df_nuevo = df_nuevo[columnas_activas]
-
-                if os.path.exists(csv_historico):
-                    df_antiguo = pd.read_csv(csv_historico)
-                    df_antiguo = df_antiguo[df_antiguo['Fecha'] != fecha_formateada]
-                    df_consolidado = pd.concat([df_antiguo, df_nuevo], ignore_index=True)
-                else:
-                    df_consolidado = df_nuevo
-
-                columnas_ordenadas = ['Fecha', 'Intervalo'] + [c for c in df_consolidado.columns if c not in ['Fecha', 'Intervalo']]
-                df_consolidado = df_consolidado[columnas_ordenadas]
-                df_consolidado.to_csv(csv_historico, index=False, encoding='utf-8')
-                print(f"¡Éxito! Datos guardados en {csv_historico}.")
-
-except Exception as e:
-    print(f"[Error en procesamiento]: {e}")
-    traceback.print_exc()
-
-# Si no se descargó hoy pero existe histórico, se recupera
-if df_consolidado is None and os.path.exists(csv_historico):
-    print("Cargando datos históricos existentes para generar la gráfica...")
-    df_consolidado = pd.read_csv(csv_historico)
-
-# ==========================================
-# 2. GENERACIÓN DEL GRÁFICO PARA EL README
-# ==========================================
-def generar_grafico_perfil(df):
-    if df is None or df.empty:
-        print("[Aviso] No hay datos disponibles para graficar.")
-        fig, ax = plt.subplots(figsize=(6, 2))
-        ax.text(0.5, 0.5, "Sin datos disponibles", ha='center', va='center')
-        ax.axis('off')
-        plt.savefig("perfil_generacion_rer.png", dpi=100)
-        plt.close()
-        return
-
-    sns.set_theme(style="whitegrid")
-    centrales = [c for c in df.columns if c not in ['Fecha', 'Intervalo']]
-    num_centrales = len(centrales)
-
-    if num_centrales == 0:
-        return
-
-    cols = 3
-    rows = (num_centrales + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(18, 4 * rows), sharex=True, sharey=False)
-
-    if num_centrales == 1:
-        axes = [axes]
-    else:
-        axes = axes.flatten()
-
-    fechas = df['Fecha'].unique()
-    ultima_fecha = max(fechas)
-
-    for i, central in enumerate(centrales):
-        ax = axes[i]
-
-        # Perfil Histórico (gris)
-        for fecha in fechas:
-            if fecha == ultima_fecha:
-                continue
-            df_dia = df[df['Fecha'] == fecha]
-            ax.plot(df_dia['Intervalo'], df_dia[central], color='gray', alpha=0.2, linewidth=1)
-
-        # Último día (resaltado en naranja)
-        df_ultimo = df[df['Fecha'] == ultima_fecha]
-        ax.plot(
-            df_ultimo['Intervalo'],
-            df_ultimo[central],
-            color='#d95f02',
-            linewidth=2.5,
-            label=f'Último día ({ultima_fecha})'
-        )
-
-        ax.set_title(f"{central}", fontsize=10, fontweight='bold')
-        ax.set_ylabel("MW", fontsize=8)
-        ax.tick_params(axis='x', rotation=90, labelsize=6)
-        ax.grid(True, linestyle='--', alpha=0.5)
-        ax.legend(loc='upper right', fontsize=8)
-
-    for j in range(i + 1, len(axes)):
-        fig.delaxes(axes[j])
-
-    plt.suptitle("Perfil Diario de Generación RER", fontsize=15, fontweight='bold', y=1.01)
-    plt.tight_layout()
-    plt.savefig("perfil_generacion_rer.png", dpi=200, bbox_inches='tight')
-    plt.close()
-    print("Gráfico 'perfil_generacion_rer.png' generado exitosamente.")
-
-
-# ==========================================
-# 3. EXPORTAR DATOS A JSON PARA GITHUB PAGES
-# ==========================================
 def exportar_a_json(df):
     if df is None or df.empty:
         print("[Aviso] No hay datos disponibles para exportar a JSON.")
         return
 
-    # Si 'data' existe como ARCHIVO (en vez de carpeta) por algún residuo
-    # anterior en el repo, lo eliminamos antes de crear la carpeta real.
     if os.path.exists('data') and not os.path.isdir('data'):
         os.remove('data')
-
-    # Crear carpeta 'data' si no existe
     os.makedirs('data', exist_ok=True)
 
     centrales = [c for c in df.columns if c not in ['Fecha', 'Intervalo']]
 
-    # Estructura del JSON final
+    # Normalizar fechas a YYYY-MM-DD por si vienen en formato DD/MM/YYYY
+    fechas_raw = df['Fecha'].unique()
+    mapa_fechas = {}
+    fechas_iso = []
+    for f in fechas_raw:
+        partes = str(f).split('/')
+        if len(partes) == 3:
+            f_iso = f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
+        else:
+            f_iso = str(f)
+        mapa_fechas[f] = f_iso
+        fechas_iso.append(f_iso)
+
+    fechas_iso = sorted(list(set(fechas_iso)))
+    intervalos_unicos = list(df['Intervalo'].unique()[:48])
+
     estructura_json = {
+        "intervalos": intervalos_unicos,
+        "fechas": fechas_iso,
         "centrales": centrales,
-        "fechas": list(df['Fecha'].unique()),
-        "intervalos": list(df['Intervalo'].unique()[:48]),
-        "datos": {}
+        "datos": {c: {} for c in centrales}
     }
 
-    # Organizar datos: datos[central][fecha] = [48 valores MW]
-    for central in centrales:
-        estructura_json["datos"][central] = {}
-        for fecha, df_fecha in df.groupby('Fecha'):
-            # Conversión tolerante: lo que no sea numérico se vuelve 0 en vez de romper el script
-            valores = pd.to_numeric(df_fecha[central], errors='coerce').fillna(0).tolist()
-            # Asegurar exactamente 48 periodos
-            if len(valores) == 48:
-                estructura_json["datos"][central][fecha] = valores
-            else:
-                print(f"[Aviso] {central} - {fecha}: {len(valores)} valores (se esperaban 48), se descarta esa fecha.")
+    for fecha_orig, df_fecha in df.groupby('Fecha'):
+        fecha_key = mapa_fechas.get(fecha_orig, fecha_orig)
+        for central in centrales:
+            valores = pd.to_numeric(df_fecha[central], errors='coerce').fillna(0.0).tolist()
+            estructura_json["datos"][central][fecha_key] = valores[:48]
 
     json_path = os.path.join('data', 'data.json')
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(estructura_json, f, ensure_ascii=False, indent=2)
 
     print(f"¡Éxito! Datos exportados para la Web en '{json_path}'.")
-
-
-# Ejecución de ambas funciones, cada una aislada para que un fallo en una
-# no impida que la otra corra ni que el commit/push final se ejecute.
-try:
-    generar_grafico_perfil(df_consolidado)
-except Exception:
-    print("[Error generando gráfico]")
-    traceback.print_exc()
-
-try:
-    exportar_a_json(df_consolidado)
-except Exception:
-    print("[Error exportando JSON]")
-    traceback.print_exc()
