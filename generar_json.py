@@ -7,30 +7,51 @@ JSON_OUTPUT = "data/data.json"
 
 
 def csv_a_json():
-    if not os.path.exists(CSV_FILE):
+    # Buscar el CSV en el directorio actual o en la carpeta raíz
+    ruta_csv = (
+        CSV_FILE
+        if os.path.exists(CSV_FILE)
+        else os.path.join("..", CSV_FILE)
+    )
+
+    if not os.path.exists(ruta_csv):
         print(f"❌ No se encontró el archivo {CSV_FILE}")
         return
 
-    df = pd.read_csv(CSV_FILE)
+    print(f"📖 Leyendo {ruta_csv}...")
+    df = pd.read_csv(ruta_csv)
     df.columns = df.columns.str.strip()
 
     cols_reservadas = ["Fecha", "Intervalo"]
     centrales = [col for col in df.columns if col not in cols_reservadas]
 
-    # Convertir fecha a datetime parseando el día primero (DD/MM/YYYY o YYYY-MM-DD)
-    df["Fecha_DT"] = pd.to_datetime(df["Fecha"], dayfirst=True, errors="coerce")
-    df = df.dropna(subset=["Fecha_DT"])
+    # Clean string de la columna Fecha
+    df["Fecha_Clean"] = df["Fecha"].astype(str).str.strip()
 
-    # Estandarizar a formato texto YYYY-MM-DD
-    df["Fecha_ISO"] = df["Fecha_DT"].dt.strftime("%Y-%m-%d")
+    # Parseo de fechas ultra-robusto
+    # Maneja tanto YYYY-MM-DD como DD/MM/YYYY y DD/MM/YY
+    df["Fecha_DT"] = pd.to_datetime(
+        df["Fecha_Clean"], format="mixed", dayfirst=True, errors="coerce"
+    )
 
-    fechas_iso = sorted(df["Fecha_ISO"].unique().tolist())
-    intervalos = df["Intervalo"].unique().tolist()
+    # Eliminar filas donde la fecha no sea válida
+    df_valid = df.dropna(subset=["Fecha_DT"]).copy()
+
+    # Forzar formato ISO estándar YYYY-MM-DD
+    df_valid["Fecha_ISO"] = df_valid["Fecha_DT"].dt.strftime("%Y-%m-%d")
+
+    fechas_iso = sorted(df_valid["Fecha_ISO"].unique().tolist())
+    intervalos = df_valid["Intervalo"].unique().tolist()
+
+    print(f"🔍 TOTAL DE DÍAS ENCONTRADOS: {len(fechas_iso)}")
+    if fechas_iso:
+        print(f"📅 Primera fecha detectada: {fechas_iso[0]}")
+        print(f"📅 Última fecha detectada:   {fechas_iso[-1]}")
 
     datos_dict = {c: {} for c in centrales}
 
-    # Agrupar por la clave estandarizada YYYY-MM-DD
-    for fecha_iso_str, grupo in df.groupby("Fecha_ISO"):
+    # Agrupar por Fecha_ISO
+    for fecha_iso_str, grupo in df_valid.groupby("Fecha_ISO"):
         grupo_ord = grupo.sort_values(by="Intervalo")
         key_fecha = str(fecha_iso_str).strip()
 
@@ -54,9 +75,7 @@ def csv_a_json():
     with open(JSON_OUTPUT, "w", encoding="utf-8") as f:
         json.dump(json_final, f, ensure_ascii=False, indent=2)
 
-    print(
-        f"✅ JSON regenerado: {len(fechas_iso)} días procesados desde {fechas_iso[0]} hasta {fechas_iso[-1]}."
-    )
+    print(f"✅ Archivo exportado exitosamente a {JSON_OUTPUT}")
 
 
 if __name__ == "__main__":
