@@ -8,7 +8,7 @@ CSV_FILE = "historico_generacion_rer.csv"
 TEMP_EXCEL = "temp_ieod.xlsx"
 
 def obtener_fecha_ayer():
-    # Ayer (por ejemplo, si hoy es 2 de septiembre, descarga el del 1 de septiembre)
+    # Ayer (si se ejecuta hoy 6 de septiembre, intentará la fecha del 5)
     return datetime.now() - timedelta(days=1)
 
 def construir_url(fecha):
@@ -29,20 +29,25 @@ def construir_url(fecha):
 def descargar_excel(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers, timeout=30)
-    if res.status_code == 200:
+    
+    # Validar status HTTP y que el archivo no sea una respuesta HTML de error/redirección
+    if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE html") and not res.content.startswith(b"<html"):
         with open(TEMP_EXCEL, "wb") as f:
             f.write(res.content)
         return True
     return False
 
 def procesar_excel(fecha_obj):
-    # Cargar pestaña GENERACION RER
-    df_raw = pd.read_excel(TEMP_EXCEL, sheet_name="GENERACION RER", header=None)
+    try:
+        df_raw = pd.read_excel(TEMP_EXCEL, sheet_name="GENERACION RER", header=None, engine="openpyxl")
+    except Exception as e:
+        print(f"❌ Error al procesar la hoja 'GENERACION RER': {e}")
+        return None
     
     # Fila 7 (índice 6 en Pandas): Títulos de las centrales
     row_headers = df_raw.iloc[6].values
     
-    # Filtrar columnas que sean C.E., CE, C.S. o CS
+    # Filtrar columnas que correspondan a centrales eólicas (C.E.) o solares (C.S.)
     valid_cols = []
     col_names = []
     
@@ -54,7 +59,7 @@ def procesar_excel(fecha_obj):
                 col_names.append(name_str)
                 
     if not valid_cols:
-        print("⚠️ No se encontraron columnas RER (C.E. / C.S.) en la fila 7.")
+        print("⚠️ No se encontraron columnas RER válidas (C.E. / C.S.) en la fila 7 del archivo.")
         return None
 
     # Filas 8 a 55 (índices 7 a 54): 48 valores semihorarios
@@ -84,10 +89,10 @@ def actualizar_historico(df_nuevo):
     if os.path.exists(CSV_FILE):
         df_hist = pd.read_csv(CSV_FILE)
         
-        # Evitar duplicar la fecha si ya fue cargada anteriormente
+        # Evitar duplicar la fecha si ya existe en el histórico
         fecha_nueva = df_nuevo["Fecha"].iloc[0]
         if "Fecha" in df_hist.columns and fecha_nueva in df_hist["Fecha"].values:
-            print(f"ℹ️ La fecha {fecha_nueva} ya existe en el histórico. No se duplica.")
+            print(f"ℹ️ La fecha {fecha_nueva} ya existe en {CSV_FILE}. No se realiza ningún cambio.")
             return
             
         df_combinado = pd.concat([df_hist, df_nuevo], ignore_index=True)
@@ -101,7 +106,7 @@ def main():
     fecha_target = obtener_fecha_ayer()
     url = construir_url(fecha_target)
     print(f"Descargando datos del COES para la fecha: {fecha_target.strftime('%d/%m/%Y')}...")
-    print(f"URL: {url}")
+    print(f"URL objetivo: {url}")
     
     if descargar_excel(url):
         try:
@@ -112,7 +117,7 @@ def main():
             if os.path.exists(TEMP_EXCEL):
                 os.remove(TEMP_EXCEL)
     else:
-        print("❌ No se pudo descargar el archivo. Es posible que aún no esté publicado en el portal del COES.")
+        print(f"❌ No se pudo descargar el Excel del día {fecha_target.strftime('%d/%m/%Y')}. Es probable que el COES aún no publique dicho archivo.")
 
 if __name__ == "__main__":
     main()
