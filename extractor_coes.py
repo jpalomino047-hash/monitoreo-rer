@@ -7,10 +7,6 @@ BASE_URL = "https://www.coes.org.pe/portal/browser/download?url=Post%20Operaci%C
 CSV_FILE = "historico_generacion_rer.csv"
 TEMP_EXCEL = "temp_ieod.xlsx"
 
-def obtener_fecha_ayer():
-    # Ayer (si se ejecuta hoy 6 de septiembre, intentará la fecha del 5)
-    return datetime.now() - timedelta(days=1)
-
 def construir_url(fecha):
     year = fecha.strftime("%Y")
     month_num = fecha.strftime("%m")
@@ -28,13 +24,14 @@ def construir_url(fecha):
 
 def descargar_excel(url):
     headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers, timeout=30)
-    
-    # Validar status HTTP y que el archivo no sea una respuesta HTML de error/redirección
-    if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE html") and not res.content.startswith(b"<html"):
-        with open(TEMP_EXCEL, "wb") as f:
-            f.write(res.content)
-        return True
+    try:
+        res = requests.get(url, headers=headers, timeout=30)
+        if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE html") and not res.content.startswith(b"<html"):
+            with open(TEMP_EXCEL, "wb") as f:
+                f.write(res.content)
+            return True
+    except Exception as e:
+        print(f"⚠️ Error en la descarga HTTP: {e}")
     return False
 
 def procesar_excel(fecha_obj):
@@ -59,7 +56,7 @@ def procesar_excel(fecha_obj):
                 col_names.append(name_str)
                 
     if not valid_cols:
-        print("⚠️ No se encontraron columnas RER válidas (C.E. / C.S.) en la fila 7 del archivo.")
+        print("⚠️ No se encontraron columnas RER válidas (C.E. / C.S.) en la fila 7.")
         return None
 
     # Filas 8 a 55 (índices 7 a 54): 48 valores semihorarios
@@ -88,11 +85,11 @@ def procesar_excel(fecha_obj):
 def actualizar_historico(df_nuevo):
     if os.path.exists(CSV_FILE):
         df_hist = pd.read_csv(CSV_FILE)
-        
-        # Evitar duplicar la fecha si ya existe en el histórico
         fecha_nueva = df_nuevo["Fecha"].iloc[0]
+        
+        # Evitar duplicar la fecha si ya existe
         if "Fecha" in df_hist.columns and fecha_nueva in df_hist["Fecha"].values:
-            print(f"ℹ️ La fecha {fecha_nueva} ya existe en {CSV_FILE}. No se realiza ningún cambio.")
+            print(f"ℹ️ La fecha {fecha_nueva} ya existe en {CSV_FILE}. Omitiendo...")
             return
             
         df_combinado = pd.concat([df_hist, df_nuevo], ignore_index=True)
@@ -100,24 +97,31 @@ def actualizar_historico(df_nuevo):
         df_combinado = df_nuevo
         
     df_combinado.to_csv(CSV_FILE, index=False)
-    print(f"✅ Se agregaron exitosamente los datos al archivo {CSV_FILE}")
+    print(f"✅ Se agregaron exitosamente los datos del {df_nuevo['Fecha'].iloc[0]} al histórico.")
 
 def main():
-    fecha_target = obtener_fecha_ayer()
-    url = construir_url(fecha_target)
-    print(f"Descargando datos del COES para la fecha: {fecha_target.strftime('%d/%m/%Y')}...")
-    print(f"URL objetivo: {url}")
+    # Definir rango de fechas para recuperar días pendientes en septiembre
+    fecha_inicio = datetime(2026, 9, 1)
+    fecha_fin = datetime.now() - timedelta(days=1)
     
-    if descargar_excel(url):
-        try:
-            df_nuevo = procesar_excel(fecha_target)
-            if df_nuevo is not None:
-                actualizar_historico(df_nuevo)
-        finally:
-            if os.path.exists(TEMP_EXCEL):
-                os.remove(TEMP_EXCEL)
-    else:
-        print(f"❌ No se pudo descargar el Excel del día {fecha_target.strftime('%d/%m/%Y')}. Es probable que el COES aún no publique dicho archivo.")
+    fecha_actual = fecha_inicio
+    while fecha_actual <= fecha_fin:
+        url = construir_url(fecha_actual)
+        str_f = fecha_actual.strftime('%d/%m/%Y')
+        print(f"\n--- Procesando fecha: {str_f} ---")
+        
+        if descargar_excel(url):
+            try:
+                df_nuevo = procesar_excel(fecha_actual)
+                if df_nuevo is not None:
+                    actualizar_historico(df_nuevo)
+            finally:
+                if os.path.exists(TEMP_EXCEL):
+                    os.remove(TEMP_EXCEL)
+        else:
+            print(f"❌ El archivo del {str_f} no está disponible o no se pudo descargar.")
+            
+        fecha_actual += timedelta(days=1)
 
 if __name__ == "__main__":
     main()
