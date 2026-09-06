@@ -101,7 +101,7 @@ def actualizar_historico(df_nuevo):
 
 def main():
     # Definir rango de fechas para recuperar días pendientes en septiembre
-    fecha_inicio = datetime(2026, 9, 1)
+    fecha_inicio = datetime(2026, 1, 1)
     fecha_fin = datetime.now() - timedelta(days=1)
     
     fecha_actual = fecha_inicio
