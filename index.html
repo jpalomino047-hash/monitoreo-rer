@@ -1,40 +1,4 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>Dashboard Perfiles de Generación</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; }
-    .grid-card { background-color: #1e293b; border-radius: 0.5rem; padding: 1rem; border: 1px solid #334155; }
-    .grid-card h3 { font-size: 0.875rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.5rem; text-align: center; }
-    .grid-chart-box { position: relative; height: 180px; width: 100%; }
-  </style>
-</head>
-<body class="p-6">
-
-  <!-- BARRA DE CONTROL -->
-  <div class="mb-6 flex items-center justify-between bg-slate-800 p-4 rounded-lg border border-slate-700">
-    <div>
-      <h1 class="text-xl font-bold text-white">Perfiles Diarios de Generación</h1>
-      <p class="text-xs text-slate-400">Grilla con perfil diario y curva promedio mensual destacado</p>
-    </div>
-    <div class="flex items-center space-x-3">
-      <label for="select-mes" class="text-sm text-slate-300 font-medium">Seleccionar Mes:</label>
-      <select id="select-mes" onchange="actualizarVista()" class="bg-slate-900 border border-slate-700 text-white text-sm rounded-md p-2 focus:ring-2 focus:ring-orange-500 outline-none">
-        <!-- Se llena dinámicamente según la data -->
-      </select>
-    </div>
-  </div>
-
-  <!-- CONTENEDOR DE LA GRILLA -->
-  <div id="grid-wrapper" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-    <!-- Las tarjetas se generan dinámicamente -->
-  </div>
-
-  <script>
-    // Generación de etiquetas de 48 tramos (cada 30 min)
+<script>
     const etiquetas48 = Array.from({ length: 48 }, (_, i) => {
       const hh = String(Math.floor(i / 2)).padStart(2, '0');
       const mm = i % 2 === 0 ? '00' : '30';
@@ -44,29 +8,36 @@
     let rawData = { fechas: [], centrales: [], datos: {} };
     let gridChartInstances = [];
 
-    // Cargar datos desde data.json (o tu variable global)
     async function cargarDatos() {
       try {
-        const resp = await fetch('data.json');
-        rawData = await resp.json();
+        // Anti-caché con timestamp param para forzar la lectura del nuevo JSON
+        const resp = await fetch('data/data.json?v=' + Date.now());
+        if (!resp.ok) {
+          // Intenta ruta alternativa por si data.json está en el mismo directorio raíz
+          const respAlt = await fetch('data.json?v=' + Date.now());
+          rawData = await respAlt.json();
+        } else {
+          rawData = await resp.json();
+        }
+        console.log("Carga exitosa. Fechas encontradas:", rawData.fechas.length);
       } catch (err) {
-        console.warn("No se cargó data.json, asegurando uso de datos en memoria si existen.");
+        console.error("Error al cargar data.json:", err);
       }
 
       poblarDesplegableMeses();
       renderizarGrilla();
     }
 
-    // 1. POBLAR SELECTOR DE MESES DINÁMICAMENTE (Solución a meses faltantes)
     function poblarDesplegableMeses() {
       const selectMes = document.getElementById('select-mes');
       selectMes.innerHTML = '';
 
-      // Extraer años-meses únicos (YYYY-MM) de todas las fechas disponibles
+      if (!rawData.fechas || rawData.fechas.length === 0) return;
+
       const mesesSet = new Set();
       rawData.fechas.forEach(fecha => {
         if (fecha && fecha.length >= 7) {
-          mesesSet.add(fecha.substring(0, 7)); // Obtiene "2026-01", "2026-02", etc.
+          mesesSet.add(fecha.substring(0, 7)); // Obtiene YYYY-MM
         }
       });
 
@@ -79,14 +50,16 @@
       };
 
       mesesOrdenados.forEach(mesKey => {
-        const [anio, mesNum] = mesKey.split('-');
+        const partes = mesKey.split('-');
+        const anio = partes[0];
+        const mesNum = partes[1];
         const option = document.createElement('option');
         option.value = mesKey;
         option.textContent = `${nombresMeses[mesNum] || mesNum} ${anio}`;
         selectMes.appendChild(option);
       });
 
-      // Seleccionar automáticamente el último mes disponible por defecto
+      // Seleccionar el último mes disponible por defecto
       if (mesesOrdenados.length > 0) {
         selectMes.value = mesesOrdenados[mesesOrdenados.length - 1];
       }
@@ -96,18 +69,20 @@
       renderizarGrilla();
     }
 
-    // 2. RENDERIZAR GRILLA CON PROMEDIO EN NARANJA Y OCULTAR GRÁFICOS VACÍOS
     function renderizarGrilla() {
-      const mesSeleccionado = document.getElementById('select-mes').value;
-      if (!mesSeleccionado) return;
+      const selectMes = document.getElementById('select-mes');
+      if (!selectMes || !selectMes.value) return;
 
+      const mesSeleccionado = selectMes.value;
       const fechasDelMes = rawData.fechas.filter(f => f.startsWith(mesSeleccionado));
       const gridWrapper = document.getElementById('grid-wrapper');
 
-      // Limpiar gráficos anteriores
+      // Destruir instancias previas
       gridChartInstances.forEach(inst => inst.destroy());
       gridChartInstances = [];
       gridWrapper.innerHTML = '';
+
+      if (!rawData.centrales) return;
 
       rawData.centrales.forEach((central, idx) => {
         let datasets = [];
@@ -115,26 +90,24 @@
         let cuentaDiasConData = 0;
         let tieneAlgúnDatoValido = false;
 
-        // Procesar cada día del mes para la central actual
         fechasDelMes.forEach(fecha => {
           const vals = rawData.datos[central]?.[fecha];
           
-          if (vals && vals.length > 0) {
+          if (vals && Array.isArray(vals) && vals.length > 0) {
             const tramo48 = vals.slice(0, 48);
             
-            // Verificar si hay producción mayor a 0
+            // Verificar si hay generación real en el día
             if (tramo48.some(v => v > 0)) {
               tieneAlgúnDatoValido = true;
             }
 
-            // Días del mes en gris suave
             datasets.push({
               data: tramo48,
-              borderColor: 'rgba(148, 163, 184, 0.25)', // Gris/Azul tenue
+              borderColor: 'rgba(148, 163, 184, 0.25)',
               borderWidth: 1,
               pointRadius: 0,
               fill: false,
-              order: 2 // Renderizar al fondo
+              order: 2
             });
 
             tramo48.forEach((v, i) => suma[i] += (v || 0));
@@ -142,12 +115,12 @@
           }
         });
 
-        // FILTRO: Si la central no tiene ninguna generación o está totalmente vacía este mes, NO se dibuja
+        // Descartar centrales sin producción o vacías en este mes
         if (!tieneAlgúnDatoValido || cuentaDiasConData === 0) {
-          return; 
+          return;
         }
 
-        // Crear la tarjeta en la grilla
+        // Crear la tarjeta HTML
         const card = document.createElement('div');
         card.className = 'grid-card';
         
@@ -165,19 +138,18 @@
         card.appendChild(box);
         gridWrapper.appendChild(card);
 
-        // 3. CURVA PROMEDIO DESTACADA EN NARANJA
+        // Curva del promedio mensual en Naranja
         const promedio = suma.map(v => v / cuentaDiasConData);
         datasets.push({
           label: 'Promedio Mensual',
           data: promedio,
-          borderColor: '#f97316', // Naranja resplandeciente (Tailwind Orange-500)
+          borderColor: '#f97316',
           borderWidth: 2.5,
           pointRadius: 0,
           fill: false,
-          order: 1 // Forzar que se dibuje ENCIMA de las líneas grises
+          order: 1
         });
 
-        // Crear instancia de Chart.js
         const ctx = canvas.getContext('2d');
         const chart = new Chart(ctx, {
           type: 'line',
@@ -191,10 +163,9 @@
               tooltip: {
                 callbacks: {
                   label: function(context) {
-                    if (context.dataset.label === 'Promedio Mensual') {
-                      return `Promedio: ${context.parsed.y.toFixed(2)} MW`;
-                    }
-                    return `Generación: ${context.parsed.y.toFixed(2)} MW`;
+                    return context.dataset.label === 'Promedio Mensual'
+                      ? `Promedio: ${context.parsed.y.toFixed(2)} MW`
+                      : `Generación: ${context.parsed.y.toFixed(2)} MW`;
                   }
                 }
               }
@@ -215,8 +186,5 @@
       });
     }
 
-    // Inicializar al cargar la página
     window.onload = cargarDatos;
   </script>
-</body>
-</html>
