@@ -152,7 +152,7 @@
       });
 
       if (mesesOrdenados.length > 0) {
-        selectMes.value = mesesOrdenados[0]; // Por defecto Enero si está disponible
+        selectMes.value = mesesOrdenados[0];
       }
     }
 
@@ -295,7 +295,7 @@
       });
     }
 
-    // 6. Renderizar Grilla de Centrales Individuales
+    // 6. Renderizar Grilla de Centrales Individuales (Filtrando vacías)
     function renderizarGrilla() {
       const selectMes = document.getElementById('select-mes');
       if (!selectMes || !selectMes.value) return;
@@ -313,11 +313,15 @@
         let datasets = [];
         let suma = new Array(48).fill(0);
         let cuentaDiasConData = 0;
+        let sumaTotalMes = 0; // Acumulador global para verificar si la central generó energía
 
         fechasDelMes.forEach(fechaKey => {
           const vals = rawData.datos[central]?.[fechaKey];
           
           if (vals && Array.isArray(vals) && vals.length === 48) {
+            const sumaDia = vals.reduce((acc, curr) => acc + (curr || 0), 0);
+            sumaTotalMes += sumaDia;
+
             datasets.push({
               data: vals,
               borderColor: 'rgba(148, 163, 184, 0.2)',
@@ -332,7 +336,9 @@
           }
         });
 
-        if (cuentaDiasConData === 0) return;
+        // FILTRO ANTI-GRÁFICOS VACÍOS:
+        // Se omite la tarjeta si no hay días con datos o si la generación acumulada es cero.
+        if (cuentaDiasConData === 0 || sumaTotalMes <= 0.001) return;
 
         const card = document.createElement('div');
         card.className = 'grid-card';
