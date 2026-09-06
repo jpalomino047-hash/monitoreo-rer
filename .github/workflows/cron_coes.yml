@@ -29,10 +29,13 @@ jobs:
     - name: Ejecutar script extractor COES
       run: python extractor_coes.py
 
+    - name: Convertir CSV a JSON para el Dashboard HTML
+      run: python generar_json.py
+
     - name: Guardar y subir cambios al repositorio de GitHub
       run: |
         git config --global user.name "COES Bot"
         git config --global user.email "actions@github.com"
-        git add historico_generacion_rer.csv
-        # Solo hacer commit si el archivo realmente cambió
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER - $(date +'%Y-%m-%d')" && git push)
+        git add historico_generacion_rer.csv data/data.json
+        # Solo hacer commit si los archivos realmente cambiaron
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER y JSON - $(date +'%Y-%m-%d')" && git push)
