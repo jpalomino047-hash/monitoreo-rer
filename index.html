@@ -167,8 +167,8 @@
     let rawData = null;
     let singleChartInstance = null;
     let gridChartInstances = [];
+    let etiquetas48 = []; // Guardará exactamente los 48 bloques semihorarios de 00:30 a 24:00
 
-    // Opciones globales para que los textos y líneas de los gráficos se vean en fondo oscuro
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.borderColor = '#1f2937';
 
@@ -180,6 +180,25 @@
       })
       .then(data => {
         rawData = data;
+        
+        // CORRECCIÓN EJE X: Normalizar a exactamente 48 intervalos (00:30 a 24:00)
+        if (rawData.intervalos && rawData.intervalos.length >= 48) {
+          etiquetas48 = rawData.intervalos.slice(0, 48);
+        } else {
+          // Fallback de 48 bloques por si el JSON estuviera corrupto
+          etiquetas48 = [];
+          for (let i = 1; i <= 48; i++) {
+            let mins = i * 30;
+            let h = Math.floor(mins / 60);
+            let m = mins % 60;
+            if (h === 24) {
+              etiquetas48.push("24:00");
+            } else {
+              etiquetas48.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+            }
+          }
+        }
+
         document.getElementById('loading').style.display = 'none';
         inicializarFiltros();
         actualizarInterfaz();
@@ -190,7 +209,6 @@
       });
 
     function inicializarFiltros() {
-      // 1. Llenar Meses disponibles (YYYY-MM)
       const mesesSet = new Set();
       rawData.fechas.forEach(f => mesesSet.add(f.substring(0, 7)));
       const mesesArr = Array.from(mesesSet).sort().reverse();
@@ -198,7 +216,6 @@
       const selectMes = document.getElementById('select-mes');
       selectMes.innerHTML = mesesArr.map(m => `<option value="${m}">${m}</option>`).join('');
 
-      // 2. Clasificar Centrales por Tipo
       const centrales = rawData.centrales;
       const selectCentral = document.getElementById('select-central');
       const selectSolar = document.getElementById('select-solar');
@@ -216,12 +233,10 @@
     function actualizarInterfaz() {
       const modo = document.getElementById('select-modo').value;
 
-      // Ocultar/Mostrar filtros de los selectores
       document.getElementById('group-central-unica').style.display = (modo === 'individual') ? 'flex' : 'none';
       document.getElementById('group-solar').style.display = (modo === 'comparativa') ? 'flex' : 'none';
       document.getElementById('group-eolica').style.display = (modo === 'comparativa') ? 'flex' : 'none';
 
-      // Ocultar/Mostrar contenedores principales
       if (modo === 'grilla') {
         document.getElementById('card-single-chart').style.display = 'none';
         document.getElementById('grid-wrapper').style.display = 'grid';
@@ -253,13 +268,11 @@
       const ultimaFecha = fechasDelMes[fechasDelMes.length - 1];
       const gridWrapper = document.getElementById('grid-wrapper');
 
-      // Limpiar instancias previas para liberar memoria
       gridChartInstances.forEach(inst => inst.destroy());
       gridChartInstances = [];
       gridWrapper.innerHTML = '';
 
       rawData.centrales.forEach((central, idx) => {
-        // Crear elementos HTML dinámicos
         const card = document.createElement('div');
         card.className = 'grid-card';
         
@@ -277,16 +290,15 @@
         card.appendChild(box);
         gridWrapper.appendChild(card);
 
-        // Construir datasets (Perfil Gris vs Día Resaltado)
         let datasets = [];
 
-        // 1. Días anteriores en gris tenue
+        // 1. Días anteriores en gris tenue (forzando slice a 48 valores)
         fechasDelMes.forEach(fecha => {
           if (fecha === ultimaFecha) return;
           const vals = rawData.datos[central]?.[fecha];
           if (vals) {
             datasets.push({
-              data: vals,
+              data: vals.slice(0, 48),
               borderColor: 'rgba(148, 163, 184, 0.2)',
               borderWidth: 1,
               pointRadius: 0,
@@ -295,12 +307,12 @@
           }
         });
 
-        // 2. Último día del mes en naranja vibrante
+        // 2. Último día del mes en naranja vibrante (slice a 48 valores)
         const valsUltimo = rawData.datos[central]?.[ultimaFecha];
         if (valsUltimo) {
           datasets.push({
             label: `Día ${ultimaFecha.split('-')[2]}`,
-            data: valsUltimo,
+            data: valsUltimo.slice(0, 48),
             borderColor: '#f97316',
             borderWidth: 2,
             pointRadius: 0,
@@ -308,11 +320,10 @@
           });
         }
 
-        // Crear gráfico individual de la grilla
         const ctx = canvas.getContext('2d');
         const chart = new Chart(ctx, {
           type: 'line',
-          data: { labels: rawData.intervalos, datasets: datasets },
+          data: { labels: etiquetas48, datasets: datasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -355,7 +366,7 @@
             const diaNum = fecha.split('-')[2];
             datasets.push({
               label: `Día ${diaNum}`,
-              data: valoresDia,
+              data: valoresDia.slice(0, 48),
               borderColor: 'rgba(59, 130, 246, 0.4)',
               borderWidth: 1.5,
               pointRadius: 0,
@@ -374,7 +385,7 @@
           fechasDelMes.forEach(fecha => {
             const vals = rawData.datos[central]?.[fecha];
             if (vals) {
-              vals.forEach((v, idx) => suma[idx] += v);
+              vals.slice(0, 48).forEach((v, idx) => suma[idx] += v);
               cuenta++;
             }
           });
@@ -404,7 +415,7 @@
 
       singleChartInstance = new Chart(ctx, {
         type: 'line',
-        data: { labels: rawData.intervalos, datasets: datasets },
+        data: { labels: etiquetas48, datasets: datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -415,7 +426,7 @@
           },
           scales: {
             x: { 
-              title: { display: true, text: 'Intervalo de 30 minutos (00:30 a 24:00)' },
+              title: { display: true, text: 'Intervalo semihorario (00:30 a 24:00)' },
               ticks: { maxRotation: 90, font: { size: 9 } }
             },
             y: { 
