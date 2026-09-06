@@ -29,9 +29,9 @@ jobs:
     - name: Ejecutar procesamiento diario
       run: python script.py
 
-    - name: Guardar y subir cambios al repositorio de GitHub
+    - name: Guardar y subir cambios
       run: |
         git config --global user.name "COES Bot"
         git config --global user.email "actions@github.com"
         git add historico_generacion_rer.csv data/data.json
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática RER - $(date +'%Y-%m-%d')" && git push)
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización diaria RER - $(date +'%Y-%m-%d')" && git push)
