@@ -2,25 +2,41 @@ import json
 import os
 import pandas as pd
 
-# Detectar la carpeta donde está guardado este script (Downloads)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE = os.path.join(BASE_DIR, "historico_generacion_rer.csv")
-JSON_OUTPUT = os.path.join(BASE_DIR, "data", "data.json")
+# Lista de ubicaciones probables del archivo CSV
+UBICACIONES_PROBABLES = [
+    r"C:\Users\Usuario\Downloads\historico_generacion_rer.csv",
+    r"C:\Users\Usuario\historico_generacion_rer.csv",
+    r"C:\Users\Usuario\Desktop\historico_generacion_rer.csv",
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "historico_generacion_rer.csv",
+    ),
+]
+
+
+def encontrar_csv():
+    for ruta in UBICACIONES_PROBABLES:
+        if os.path.exists(ruta):
+            return ruta
+    return None
 
 
 def csv_a_json():
-    if not os.path.exists(CSV_FILE):
-        print(f"❌ No se encontró el archivo en: {CSV_FILE}")
+    ruta_csv = encontrar_csv()
+
+    if not ruta_csv:
+        print("❌ CRÍTICO: No se encontró 'historico_generacion_rer.csv'.")
+        print("Asegúrate de que el archivo CSV se llame exactamente así.")
         return
 
-    print(f"📖 Leyendo CSV desde: {CSV_FILE}")
-    df = pd.read_csv(CSV_FILE)
+    print(f"📖 Leyendo CSV encontrado en: {ruta_csv}")
+    df = pd.read_csv(ruta_csv)
     df.columns = df.columns.str.strip()
 
     cols_reservadas = ["Fecha", "Intervalo"]
     centrales = [col for col in df.columns if col not in cols_reservadas]
 
-    # Parseo robusto de fecha a formato ISO YYYY-MM-DD
+    # Parseo estricto de fechas
     df["Fecha_Clean"] = df["Fecha"].astype(str).str.strip()
     df["Fecha_DT"] = pd.to_datetime(
         df["Fecha_Clean"], format="mixed", dayfirst=True, errors="coerce"
@@ -34,8 +50,8 @@ def csv_a_json():
 
     print(f"🔍 TOTAL DE DÍAS ENCONTRADOS: {len(fechas_iso)}")
     if fechas_iso:
-        print(f"📅 Primera fecha: {fechas_iso[0]}")
-        print(f"📅 Última fecha:   {fechas_iso[-1]}")
+        print(f"📅 Primera fecha procesada: {fechas_iso[0]}")
+        print(f"📅 Última fecha procesada:   {fechas_iso[-1]}")
 
     datos_dict = {c: {} for c in centrales}
 
@@ -59,11 +75,14 @@ def csv_a_json():
         "datos": datos_dict,
     }
 
-    os.makedirs(os.path.dirname(JSON_OUTPUT), exist_ok=True)
-    with open(JSON_OUTPUT, "w", encoding="utf-8") as f:
+    # Guardar en la subcarpeta data de Downloads
+    salida_json = r"C:\Users\Usuario\Downloads\data\data.json"
+    os.makedirs(os.path.dirname(salida_json), exist_ok=True)
+
+    with open(salida_json, "w", encoding="utf-8") as f:
         json.dump(json_final, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ Archivo exportado exitosamente a: {JSON_OUTPUT}")
+    print(f"✅ Archivo exportado exitosamente a: {salida_json}")
 
 
 if __name__ == "__main__":
