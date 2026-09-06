@@ -11,46 +11,40 @@ def csv_a_json():
         print(f"❌ No se encontró el archivo {CSV_FILE}")
         return
 
-    # Leer CSV
+    # 1. Leer CSV
     df = pd.read_csv(CSV_FILE)
-
-    # Limpieza de columnas
     df.columns = df.columns.str.strip()
 
-    # Columnas reservadas
     cols_reservadas = ["Fecha", "Intervalo"]
     centrales = [col for col in df.columns if col not in cols_reservadas]
 
-    # 1. PARSEO ROBUSTO DE FECHAS (Soporta DD/MM/YYYY, YYYY-MM-DD, etc.)
-    # dayfirst=True maneja fechas tipo 15/01/2026 correctamente
+    # 2. Parseo seguro de fecha a ISO string (YYYY-MM-DD)
     df["Fecha_DT"] = pd.to_datetime(df["Fecha"], dayfirst=True, errors="coerce")
-
-    # Eliminar filas donde la fecha no se pudo parsear
     df = df.dropna(subset=["Fecha_DT"])
-
-    # Crear columna con formato estandarizado ISO (YYYY-MM-DD)
     df["Fecha_ISO"] = df["Fecha_DT"].dt.strftime("%Y-%m-%d")
 
-    # Obtener fechas únicas e intervalos
+    # 3. Lista de fechas ordenadas e intervalos
     fechas_iso = sorted(df["Fecha_ISO"].unique().tolist())
     intervalos = df["Intervalo"].unique().tolist()
 
-    # Estructurar datos por Central -> Fecha_ISO -> Lista de valores por intervalo
+    # 4. Construcción del diccionario de datos por Central
     datos_dict = {c: {} for c in centrales}
 
-    # Agrupar por la fecha estandarizada
-    for fecha_iso, grupo in df.groupby("Fecha_ISO"):
-        # Asegurar el orden interno por Intervalo
-        grupo_ordenado = grupo.sort_values(by="Intervalo")
+    # Agrupar por la fecha ISO estandarizada
+    for fecha_str, grupo in df.groupby("Fecha_ISO"):
+        # Asegurar orden por Intervalo
+        grupo_ord = grupo.sort_values(by="Intervalo")
+
         for c in centrales:
-            valores = (
-                pd.to_numeric(grupo_ordenado[c], errors="coerce")
+            # Extraer números nativos de Python para evitar errores de serialización en JSON
+            vals = (
+                pd.to_numeric(grupo_ord[c], errors="coerce")
                 .fillna(0.0)
+                .astype(float)
                 .tolist()
             )
-            datos_dict[c][fecha_iso] = valores
+            datos_dict[c][str(fecha_str)] = vals
 
-    # Crear objeto JSON final
     json_final = {
         "intervalos": intervalos,
         "fechas": fechas_iso,
@@ -58,16 +52,16 @@ def csv_a_json():
         "datos": datos_dict,
     }
 
-    # Guardar en data/data.json
+    # 5. Guardar JSON en data/data.json
     os.makedirs("data", exist_ok=True)
     with open(JSON_OUTPUT, "w", encoding="utf-8") as f:
         json.dump(json_final, f, ensure_ascii=False, indent=2)
 
-    print(
-        f"✅ Se actualizó exitosamente {JSON_OUTPUT} con {len(fechas_iso)} días cargados."
-    )
+    print(f"✅ Éxito: {len(fechas_iso)} días procesados en {JSON_OUTPUT}")
     if fechas_iso:
-        print(f"📅 Rango cargado: desde {fechas_iso[0]} hasta {fechas_iso[-1]}")
+        print(
+            f"📅 Fechas cargadas: desde {fechas_iso[0]} hasta {fechas_iso[-1]}"
+        )
 
 
 if __name__ == "__main__":
